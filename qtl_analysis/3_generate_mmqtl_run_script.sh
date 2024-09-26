@@ -7,10 +7,9 @@ cat > gaba_qtl${i}.sh << EOT
 #!/bin/bash  
 #BSUB -J gaba_qtl${i}
 #BSUB -q premium
-#BSUB -P acc_roussp01a 
+#BSUB -P acc_
 #BSUB -n 1
-#BSUB -R rusage[mem=88000]
-#BSUB -W 140:00
+#BSUB -W 06:00
 #BSUB -L /bin/bash
 #BSUB -o %J.stdout
 #BSUB -eo %J.stderr
