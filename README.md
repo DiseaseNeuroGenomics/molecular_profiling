@@ -23,8 +23,11 @@ produces the following output files:
 - outputs/Fig_S3_coleman__[celltype1]__[celltype2].pdf # Correlation of log2(cpm+1) counts between our RNA-seq data and external RNA-seq dataset of 3 cell types from parahippocampal gyrus.
 - outputs/Fig_S3_hauberg__[celltype1]__[celltype2].pdf # Correlation of log2(cpm+1) counts between our ATAC-seq data and external ATAC-seq data from 4 cell types from the prefrontal cortex.
 
- ### QTL Analysis
- Folder contains scripts for prepping files before qtl detection with MMQTL
- - 
- 
+### qtl_analysis
+
+Folder contains scripts for prepping files for qtl detection with MMQTL.
+
+- 1_peer_factors.R: generates PEER factors using expression matrix
+- 2_prep_mmqtl_files.R: generates residualized matrix using PEER factors and bed file containing gene information
+- 3_generate_mmqtl_run_script.sh: generates scritps for running MMQTL per chromosome
 
