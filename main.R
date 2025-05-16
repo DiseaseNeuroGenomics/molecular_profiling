@@ -66,7 +66,7 @@ library(readxl)
 }
 
 ########################################################################################
-##### HELPFR FUNCTIONS #################################################################
+##### HELPER FUNCTIONS #################################################################
 
 {
   mpdf = function(x, width=7,height=7, outDir=outDir, onefile=T) eval.parent(substitute({ pdf(paste0(outDir, "/", make.names(x),".pdf"), useDingbats=F, width=width, height=height, onefile=onefile) }))

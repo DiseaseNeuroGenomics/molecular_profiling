@@ -11,7 +11,6 @@ This script when run as:
 ```bash
 Rscript main.R
 ```
-
 produces the following output files:
 
 - outputs/Fig_2_a.pdf     # Numbers of differentially accessible OCRs (BH-adjusted P-value < 0.05) stratified by cell type and direction of change.
@@ -30,4 +29,9 @@ Folder contains scripts for prepping files for qtl detection with MMQTL.
 - 1_peer_factors.R: generates PEER factors using expression matrix
 - 2_prep_mmqtl_files.R: generates residualized matrix using PEER factors and bed file containing gene information
 - 3_generate_mmqtl_run_script.sh: generates scritps for running MMQTL per chromosome
+
+### qPCR_validation.R
+
+Script for analysis of data from qPCR validation experiment. It produces qPCR plot for Supplementary Data.
+
 
