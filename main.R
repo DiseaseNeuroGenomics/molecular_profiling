@@ -1,7 +1,7 @@
 library(ggplot2)
 library(data.table)
-library(dplyr)
 library(plyr)
+library(dplyr)
 library(ggpubr)
 library(cowplot)
 library(ggsci)
@@ -9,6 +9,8 @@ library(MASS)
 library(viridis)
 library(reshape)
 library(readxl)
+library(RColorBrewer)
+library(patchwork)
 
 ########################################################################################
 ##### CONFIG ###########################################################################
@@ -58,9 +60,7 @@ library(readxl)
                  "OLIG" = "#E7298A", "OLIG2", "#FFC9E5",
                  "MGAS" = "#7570B3", "MGAS2", "#C1BEE2")
   
-  myPalette = colorRampPalette(c("#F7FCF5", "#E5F5E0", 
-                                 "#C7E9C0", "#A1D99B", "#74C476", "#41AB5D", "#238B45", 
-                                 "#006D2C", "#00441B"), space = "Lab")
+  myPalette = colorRampPalette(c("#F7FCF5", "#E5F5E0", "#C7E9C0", "#A1D99B", "#74C476", "#41AB5D", "#238B45", "#006D2C", "#00441B"), space = "Lab")
   
   dir.create(file.path(ROOT, "outputs"))
 }
@@ -164,7 +164,92 @@ library(readxl)
 }
 
 ####################################################################################################
-##### FIG. S1 (RNA-SEQ):: QUALITY CONTROL FOR ######################################################
+##### FIG. SX1 :: DEMOGRAPHIC AND CLINICAL CHARACTERISTICS OF SCZ CASES AND CONTROLS ###############
+
+{
+  tmpRna = read.csv(QC_RNASEQ, sep="\t")
+  tmpAtac = read.csv(QC_ATACSEQ, sep="\t")
+  
+  # Custom fixes
+  tmpRna$RIN = ifelse(tmpRna$RIN>10, NA, tmpRna$RIN)        # there was an outlier value "105" which was clearly a typo
+  cols = intersect(colnames(tmpRna), colnames(tmpAtac))
+  tmpAll = rbind.data.frame(tmpRna[,cols], tmpAtac[,cols])
+  tmpAll = tmpAll[!duplicated(tmpAll$Person_ID),]
+  tmpAll$Ancestry = gsub("Hispanic", "AMR", gsub("African-American", "AFR", gsub("Asian", "AS", gsub("Caucasian", "EUR", tmpAll$Ethnicity))))
+  tmpAll$PMI = tmpAtac[match(tmpAll$Individual.ID, tmpAtac$Individual.ID), "PMI"]
+  tmpAll$RIN = sapply(1:nrow(tmpAll), function(i) { mean(tmpRna[which(tmpRna$Individual.ID == tmpAll[i,"Individual.ID"]), "RIN"]) })
+  
+  # Plot (density): Sex-by-Age
+  tmpFiltered <- tmpAll %>% filter(Sex %in% c("XX", "XY")) %>% mutate(SexLabel = ifelse(Sex == "XX", "Female", "Male"))
+  sexByAgePlot = ggplot(tmpFiltered, aes(x = ageOfDeath, fill = SexLabel, color = SexLabel)) + geom_density(alpha = 0.4, adjust = 1.2) + 
+    geom_vline(data = tmpFiltered %>% group_by(SexLabel) %>% summarise(m = mean(ageOfDeath)),
+               aes(xintercept = m, color = SexLabel), linetype = "dashed", size = 1) + scale_fill_manual(values = c("Female" = "#E69F00", "Male" = "#56B4E9")) +
+    scale_color_manual(values = c("Female" = "#E69F00", "Male" = "#56B4E9")) + labs(x = "Age of death", y = "Density", fill = NULL, color = NULL) +
+    theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
+
+  # Plot (pie): Ancestry distribution
+  ancestry_counts <- tmpAll %>% filter(Ancestry %in% c("AFR", "AMR", "EUR", "AS")) %>% count(Ancestry) %>% mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
+  ancestry_colors <- c("AFR" = "#E69F00", "AMR" = "#56B4E9", "EUR" = "#009E73", "AS" = "#F0E442")
+  ancestryPiePlot <- ggplot(ancestry_counts, aes(x = "", y = n, fill = Ancestry)) + geom_bar(stat = "identity", width = 1, color = "black") +
+    coord_polar(theta = "y") + geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) + scale_fill_manual(values = ancestry_colors) +
+    theme_void(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank())
+  
+  # Plot (pie): Sex distribution
+  sex_counts <- tmpAll %>% filter(Sex %in% c("XX", "XY")) %>% mutate(SexLabel = ifelse(Sex == "XX", "Female", "Male")) %>% count(SexLabel) %>%
+    mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
+  sex_colors <- c("Female" = "#E69F00", "Male" = "#56B4E9") # Define colors
+  sexPiePlot <- ggplot(sex_counts, aes(x = "", y = n, fill = SexLabel)) + geom_bar(stat = "identity", width = 1, color = "black") + coord_polar(theta = "y") +
+    geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) + scale_fill_manual(values = sex_colors) + theme_void(base_size = 14) +
+    theme(legend.position = "bottom", legend.title = element_blank())
+
+  # Plot (density): Dx-by-age plot
+  dx_filtered <- tmpAll %>% filter(Dx %in% c("Control", "SCZ")) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
+  dx_colors <- c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors matching the figure
+  dxByAgePlot <- ggplot(dx_filtered, aes(x = ageOfDeath, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
+    geom_vline(data = dx_filtered %>% group_by(DxLabel) %>% summarise(m = mean(ageOfDeath)), aes(xintercept = m, color = DxLabel), linetype = "dashed", size = 1) +
+    scale_fill_manual(values = dx_colors) + scale_color_manual(values = dx_colors) + labs(x = "Age of death", y = "Density", fill = NULL, color = NULL) +
+    theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
+
+  # Plot (density): Dx-by-pH plot
+  ph_filtered <- tmpAll %>% filter(Dx %in% c("Control", "SCZ"), !is.na(pH)) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
+  dx_colors <- c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors
+  dxByPhPlot <- ggplot(ph_filtered, aes(x = pH, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
+    geom_vline(data = ph_filtered %>% group_by(DxLabel) %>% summarise(m = mean(pH)), aes(xintercept = m, color = DxLabel), linetype = "dashed", size = 1) +
+    scale_fill_manual(values = dx_colors) + scale_color_manual(values = dx_colors) + labs(x = "pH", y = "Density", fill = NULL, color = NULL) +
+    theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
+
+  # Plot (density): Dx-by-RIN plot
+  rin_filtered <- tmpAll %>% filter(Dx %in% c("Control", "SCZ"), !is.na(RIN)) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
+  dx_colors <- c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors
+  rinDensityPlot <- ggplot(rin_filtered, aes(x = RIN, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
+    geom_vline(data = rin_filtered %>% group_by(DxLabel) %>% summarise(m = mean(RIN)), aes(xintercept = m, color = DxLabel), linetype = "dashed", size = 1) +
+    scale_fill_manual(values = dx_colors) + scale_color_manual(values = dx_colors) + labs(x = "RIN", y = "Density", fill = NULL, color = NULL) +
+    theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
+
+  # Plot (density): Dx-by-PMI plot
+  pmi_filtered <- tmpAll %>% filter(Dx %in% c("Control", "SCZ"), !is.na(PMI)) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
+  dx_colors <- c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors
+  pmiDensityPlot <- ggplot(pmi_filtered, aes(x = PMI, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
+    geom_vline(data = pmi_filtered %>% group_by(DxLabel) %>% summarise(m = mean(PMI)), aes(xintercept = m, color = DxLabel), linetype = "dashed", size = 1) +
+    scale_fill_manual(values = dx_colors) + scale_color_manual(values = dx_colors) + labs(x = "PMI", y = "Density", fill = NULL, color = NULL) +
+    theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
+
+  # Plot (pie): Antipsychotics use for SCZ samples
+  ap_pie_data <- tmpAll %>% filter(Dx == "SCZ") %>% mutate(AP_Category = case_when( AntipsychAtyp & AntipsychTyp ~ "Both",
+                                                                                    AntipsychAtyp & !AntipsychTyp ~ "Atyp only", !AntipsychAtyp & AntipsychTyp ~ "Typ only", TRUE ~ "None" )) %>%
+  count(AP_Category) %>% mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
+  ap_colors <- c("Both" = "#D55E00", "Atyp only" = "#E69F00", "Typ only" = "#56B4E9", "None" = "#009E73")  # Define colors for each category
+  antipsychPlot <- ggplot(ap_pie_data, aes(x = "", y = n, fill = AP_Category)) + geom_bar(stat = "identity", width = 1, color = "black") +
+    coord_polar(theta = "y") + geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) + scale_fill_manual(values = ap_colors) +
+    theme_void(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank())
+  
+  # Fig. SX1
+  fig_SX1 = sexPiePlot + ancestryPiePlot + antipsychPlot + sexByAgePlot + dxByAgePlot + dxByPhPlot + pmiDensityPlot + rinDensityPlot + plot_layout(nrow = 2)
+  mpdf("fig_SX1", outDir=file.path(ROOT, "outputs"), width=12, height=8); print(fig_SX1); dev.off()
+}
+
+####################################################################################################
+##### FIG. S1 (RNA-SEQ) / PART 1 :: QUALITY CONTROL ################################################
 
 {
   qcRna = read.csv(QC_RNASEQ, sep="\t")
@@ -234,7 +319,6 @@ library(readxl)
     theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.5, 0.85), 
                        axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) +
     scale_colour_manual(labels=c("GABA neurons", "GLU neurons", "Olig", "Microglia & Astrocytes"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
-  histMedianInsertSize
   mpdf("Fig_S1_a", outDir=file.path(ROOT, "outputs")); print(histMedianInsertSize); dev.off()
   
   #####
@@ -242,7 +326,7 @@ library(readxl)
   chrY_genes = qcRna$qcPeakAnno[(qcRna$qcPeakAnno$seqnames=="chrY") & (qcRna$qcPeakAnno$PeakID %in% qcRna$initialDgeObj$genes$PeakID),]
   chrY_genes = chrY_genes[(chrY_genes$end < 10001 | chrY_genes$start > 2781479) & (chrY_genes$end < 155701383 | chrY_genes$start > 156030895),]
   
-  #####  # Fig. S1c :: Genotype check based on pair-wise comparison of genotypes called from RNA-seq samples with SNP-arrays
+  #####  Fig. S1c :: Genotype check based on pair-wise comparison of genotypes called from RNA-seq samples with SNP-arrays
   kinshipRnaSnparray = read.csv(KINSHIP_RNASEQ_SNPPARRAY)
   z = kinshipRnaSnparray
   z$`Same person`= ordered(ifelse(z$samePerson, "yes", "no"), levels=c("yes", "no"))
@@ -256,7 +340,7 @@ library(readxl)
 }
 
 ####################################################################################################
-##### FIG. S1 (ATAC-SEQ) :: QUALITY CONTROL ########################################################
+##### FIG. S1 (ATAC-SEQ) / PART II :: QUALITY CONTROL ##############################################
 
 {
   qcAtac = read.csv(QC_ATACSEQ, sep="\t")
@@ -569,9 +653,156 @@ library(readxl)
   )
   dev.off()
 }
-  
+
 ####################################################################################################
-##### FIG. 4A :: NUMBERS OF DIFFERENTIALLY EXPRESSED GENES ###################################
+##### FIG. 2B-C :: HERITABILITY ENRICHMENTS OF SCZ AND OTHER TRAITS IN DIFF OCR SETS ###############
+
+{
+  # Read results of LDsc run
+  ldscScores = read.csv(file.path(ROOT, "inputs", "ldsc_results.tsv"), sep="\t", stringsAsFactors=F)
+  
+  # Custom fixes for more interpretable labels in plots
+  ldscScores$analysisType = as.factor(sapply(ldscScores$annoID, function(x) ifelse(grepl(x=x, "P_01"), "P_01", ifelse(grepl(x=x, "P_05"), "P_05", "FDR"))))
+  ldscScores$annoID = gsub("\\.1000bp.all", "", ldscScores$annoID)
+  
+  # Keeping only version with padding = 1000b on either side (other versions of padding: 0bp, 500bp) and only FDR / P-value<0.05 sets (we previously also tried P<0.01); GLU excluded entirely due to low coverage
+  ldscScores = ldscScores[(ldscScores$ldscPadding == 1000) & (ldscScores$analysisType %in% c("FDR", "P_05")) & (!startsWith(ldscScores$annoName, prefix="GLU")),]
+  ldscScores$direction = sapply(ldscScores$annoID, function(x) x=strsplit(x, "_")[[1]][length(strsplit(x, "_")[[1]])])
+  
+  # Preparation for plotting
+  colorScheme = c(Specific="#9C3A1F",All="#666666") #1B9E77 #A6761D #752D19
+  colScale = scale_colour_manual(name = "Open\nchromatin",values = colorScheme)
+  ldsc = ldscScores[ldscScores$gwasAcronym=="sz3",] 
+  ldsc$P.value = 10^-ldsc$minus_log10_p_regression
+  ldsc$adj.P.value = p.adjust(ldsc$P.value, method="BH")
+  ldsc$myLabel = ""
+  ldsc$myLabel[ldsc$P.value<0.05] = "·"
+  ldsc$myLabel[ldsc$adj.P.value<0.05] = "#"
+  ldsc$myCoefficient=ldsc$Coefficient
+  ldsc$error_left = ldsc$Coefficient - ldsc$Coefficient_std_error
+  ldsc$error_right = ldsc$Coefficient + ldsc$Coefficient_std_error
+  
+  # Plot Fig. 2b :: Heritability coefficients for SCZ risk variants across various sets of differentially accessible OCRs, stratified by direction of regulation (upregulated, downregulated, or both) and cell type. 
+  fig2b_plot = ggplot(data = ldsc,aes(x = myCoefficient,y = annoName, color=analysisType)) + 
+    geom_vline(xintercept =0, alpha = 0.5, linetype = "dotted") +
+    geom_point(show.legend=T) +
+    labs(size="-logP") +
+    colScale +
+    geom_errorbarh(height=0,size=1,aes(xmin = error_left,xmax = error_right,color=analysisType)) +
+    geom_text(size=5,aes(label=myLabel)) +
+    theme_classic() +
+    theme(axis.text=element_text(colour="black")) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    theme(legend.title = element_text(size = 12, face = "bold")) +
+    xlab("Heritability Coefficient") + ylab("Annotation") +
+    ggtitle(paste(unique(ldsc$sumstatName),collapse=" ")) +
+    facet_grid(direction ~ .,scales="free_y",space="free_y") +
+    theme(strip.text=element_text(face="bold",size=9.2)) +
+    theme(axis.title.y = element_blank())+
+    theme(plot.title = element_text(face="bold", size=13)) + scale_color_manual(values = c("FDR" = "#00441A", "P_05" = "#58B567"))
+  mpdf("Fig_2_b", outDir=file.path(ROOT, "outputs"), width=7, height=5); print(fig2b_plot); dev.off(); 
+  
+  #####
+  # Fig. 2c :: Enrichment of SCZ-upregulated OCRs (FDR < 0.05) per cell type for common variants associated with various brain-related disorders
+  # Select traits for plotting
+  SELECTED_TRAITS = c("pd_without_23andMe", "als2", "alzBellenguez", "bip2", "sz3", "mdd_without_23andMe", "eduAttainment", "cd", "bmi", "uc")
+  
+  # Prepare df for plotting (calc adj.p-val, adjust labels etc)
+  ldsc = ldscScores[(ldscScores$gwasAcronym %in% SELECTED_TRAITS) & (ldscScores$analysisType %in% c("FDR", "P_05")) & (ldscScores$direction %in% c("up")),]
+  ldsc$gwasAcronym = ordered(ldsc$gwasAcronym, levels=SELECTED_TRAITS)
+  ldsc = ldsc[order(ldsc$gwasAcronym),]
+  ldsc$sumstatName = ordered(ldsc$sumstatName, levels=unique(rev(ldsc$sumstatName)))
+  ldsc$minus_log10_p_regression = -log10(ldsc$p_regression)
+  ldsc$plotLabel = ""
+  ldsc$plotLabel[ldsc$p_regression < 0.05] = "·"
+  ldsc$plotLabel[p.adjust(ldsc$p_regression, method="BH") < 0.05] = "#"
+  plotTextSize = 9
+  
+  # Plot Fig. 2c :: Enrichment of SCZ-upregulated OCRs (FDR < 0.05) per cell type for common variants associated with various brain-related disorders
+  fig2c_plot = ggplot(ldsc, aes(sumstatName, annoName, fill = minus_log10_p_regression)) + geom_tile() + scale_y_discrete(expand = c(0, 0)) + scale_x_discrete(expand = c(0, 0)) + ylab("Trait") + 
+    xlab("Annotation") + 
+    theme_classic(base_size = plotTextSize) + 
+    theme(axis.text = element_text(colour = "black")) + 
+    coord_fixed() + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+    theme(legend.title = element_text(size = 10, face = "bold")) + 
+    geom_tile(aes(fill = minus_log10_p_regression)) + 
+    scale_fill_gradientn(colours = myPalette(100), name = "-logP") + 
+    geom_text(aes(label = plotLabel), size = plotTextSize * 0.55)
+  mpdf("Fig_2_c", outDir=file.path(ROOT, "outputs"), width=7, height=5); print(fig2c_plot); dev.off();
+  
+  #####
+  # Table SX2 :: Heritability enrichment for sets of SCZ-associated OCRs.
+  # Custom fixes of GWAS naming and re-formatting columns for printing
+  fullsumstatConvertor = list("Bipolar Disorder 2"="Bipolar disorder", "BMI"="Body mass index", "Alzheimer's Disease Bellenguez"="Alzheimer's disease",
+                              "Crohn's Disease"="Crohn's disease", "Schizophrenia 3"="Schizophrenia",
+                              "Depression (without 23andMe)"="Depression", "Parkinson Disease (without 23andMe)"="Parkinson disease",
+                              "Ulcerative Colitis"="Ulcerative colitis")
+  table_ldsc = ldscScores[ldscScores$gwasAcronym %in% SELECTED_TRAITS,]
+  table_ldsc$sumstatName = sapply(table_ldsc$sumstatName, function(x) ifelse(x %in% names(fullsumstatConvertor), fullsumstatConvertor[[x]], x))
+  table_ldsc$celltype = sapply(table_ldsc$annoID, function(x) strsplit(x,"_")[[1]][1])
+  selColumns = c("annoID", "celltype", "analysisType", "direction", "sumstatName", "gwasPubmed", "Prop._h2", "Prop._h2_std_error", "Enrichment", "Enrichment_std_error", "Enrichment_p", "Coefficient", "Coefficient_std_error", "p_regression")
+  table_ldsc = table_ldsc[,selColumns]
+  colnames(table_ldsc) = c("Category - fullname", "Cell type", "Significance", "Direction", "GWAS Trait", "GWAS Pubmed", "Prop. h2", "Prop. h2 std error", "Enrichment", "Enrichment std error", "Enrichment p", "Coefficient", "Coefficient std error", "Coefficient p")
+  
+  # Write Table SX2
+  mtsv(table_ldsc, filename="Table_SX2_ldsc", outDir=file.path(ROOT, "outputs"), myHeader=T)
+}
+
+####################################################################################################
+##### FIG. 2F :: PRIORITIZED TF GENES ##############################################################
+
+{
+  # Load HOMER & TOBIAS results
+  tfList = readRDS(file.path(ROOT, "inputs", "homer_and_tobias.RDS"))
+  
+  # Definition of "blacklisted motifs that we don't use because there are better alternatives in the results for the same TFs
+  blacklistedMotifName = c("ETS:RUNX(ETS,Runt)/Jurkat-RUNX1-ChIP-Seq(GSE17954)/Homer", "ETS:E-box(ETS,bHLH)/HPC7-Scl-ChIP-Seq(GSE22178)/Homer", "ETS(ETS)/Promoter/Homer", 
+                           "OCT:OCT(POU,Homeobox)/NPC-OCT6-ChIP-Seq(GSE43916)/Homer", "OCT:OCT(POU,Homeobox)/NPC-Brn1-ChIP-Seq(GSE35496)/Homer", "OCT:OCT(POU,Homeobox,IR1)/NPC-Brn2-ChIP-Seq(GSE35496)/Homer", 
+                           "OCT:OCT-short(POU,Homeobox)/NPC-OCT6-ChIP-Seq(GSE43916)/Homer", "RAR:RXR(NR),DR5/ES-RAR-ChIP-Seq(GSE56893)/Homer", "Tcf3(HMG)/mES-Tcf3-ChIP-Seq(GSE11724)/Homer", "E2A(bHLH),near_PU.1/Bcell-PU.1-ChIP-Seq(GSE21512)/Homer",
+                           "Fra2(bZIP)/Striatum-Fra2-ChIP-Seq(GSE43429)/Homer", "RBPJ:Ebox(?,bHLH)/Panc1-Rbpj1-ChIP-Seq(GSE47459)/Homer", "Stat3+il21(Stat)/CD4-Stat3-ChIP-Seq(GSE19198)/Homer", 
+                           "STAT6(Stat)/Macrophage-Stat6-ChIP-Seq(GSE38377)/Homer", "Tcf12(bHLH)/GM12878-Tcf12-ChIP-Seq(GSE32465)/Homer", "THRb(NR)/HepG2-THRb.Flag-ChIP-Seq(Encode)/Homer")
+  
+  # First result-filtering, i.e. keep only "up" & "down" (not "all" which is "up"+"down") & remove suboptimal motifs that have better alternatives in the results
+  tfDf_complete = do.call("rbind", tfList)
+  tfDf_complete$pc1_corr_pearsonAbs = abs(tfDf_complete$pc1_corr_pearson)
+  tfDf_complete = tfDf_complete[(tfDf_complete$Direction %in% c("up", "down")) & (!tfDf_complete$Motif.Name %in% blacklistedMotifName),]
+  
+  # Second result-filtering, i.e. keeping only motif that are significantly enriched (FDR<0.05) and correlated with expression of predicted downstream genes
+  tfDf = tfDf_complete[(tfDf_complete$adj.P.value < 0.05) & (tfDf_complete$pc1_corr_pearson_pval < 0.05),]
+  
+  # Perform hierarchical clustering on -log(P-val) scores (to reorder dot-heatmap) 
+  myPalette = colorRampPalette(brewer.pal(9, "Greens")[3:9], space="Lab")
+  mat = do.call("cbind.data.frame", lapply(unique(tfDf_complete$Gene), function(gene) {
+    sapply(unique(tfDf_complete$cat), function(cat) ifelse(length(tfDf_complete[(tfDf_complete$Gene == gene) & (tfDf_complete$cat == cat),"Log.P.value"]) == 0, 0, tfDf_complete[(tfDf_complete$Gene == gene) & (tfDf_complete$cat == cat),"Log.P.value"]))
+  }))
+  mat = data.frame(t(mat))
+  colnames(mat) = unique(tfDf_complete$cat)
+  rownames(mat) = unique(tfDf_complete$Gene)
+  clust = hclust(dist(mat %>% as.matrix()))
+  
+  # Plot Fig. 2f :: Prioritized TF genes
+  tfDf_complete = tfDf_complete[(tfDf_complete$Gene %in% unique(tfDf$Gene)) & (tfDf_complete$Motif.Name %in% unique(tfDf$Motif.Name)) & (tfDf_complete$pc1_corr_pearson_pval < 0.05), ]
+  fig2f_plot = tfDf_complete %>%  
+    mutate(pc1_corr_pearsonAbs, Gene = factor(Gene, levels = clust$labels[clust$order]), visible = ifelse(adj.P.value < 0.05, TRUE, FALSE)) %>% 
+    ggplot(aes(y=cat, x=Gene, color = pc1_corr_pearsonAbs, size = minus_Log.P.value)) + geom_point(aes(size = -Log.P.value, alpha = visible)) + 
+    cowplot::theme_cowplot() + theme(axis.line  = element_blank()) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    ylab('') + theme(axis.ticks = element_blank()) + scale_color_gradientn(colours = myPalette(100),name="abs(TF target corr)") + coord_flip()
+  mpdf("Fig_2_f", outDir=file.path(ROOT, "outputs"), width=4, height=12); print(fig2f_plot); dev.off();
+  
+  #####
+  # Table SX3 :: Summary of TF motif enrichment and footprinting analysis results across SCZ-associated OCRs
+  selCols = c("Motif", "Consensus", "Gene_ID", "Gene", "ctype", "cat", "Direction", "P.value", "adj.P.value", "Number.Target.Sequences.with.Motif", "Number.Background.Sequences.with.Motif", "Pct.Target.Sequences.with.Motif", "Pct.Background.Sequences.with.Motif", "pc1_corr_pearson", "pc1_corr_pearson_pval", "pc2_corr_pearson", "pc2_corr_pearson_pval", "pc3_corr_pearson", "pc3_corr_pearson_pval")
+  table_tf = do.call("rbind.data.frame", lapply(unique(tfDf$Gene), function(gene) {
+    tfDf[which(tfDf$Gene == gene),selCols]
+  }))
+  
+  # Write Table SX3
+  mtsv(table_tf, filename="Table_SX3_TF", outDir=file.path(ROOT, "outputs"), myHeader=T)
+}
+
+####################################################################################################
+##### FIG. 4A :: NUMBERS OF DIFFERENTIALLY EXPRESSED GENES #########################################
 
 {
   DEG_ANALYSIS = file.path(ROOT, "inputs", "DEG_Analysis.Rdata")
