@@ -23,11 +23,11 @@ produces the following output files:
 - outputs/Fig_S3_hauberg__[celltype1]__[celltype2].pdf # Correlation of log2(cpm+1) counts between our ATAC-seq data and external ATAC-seq data from 4 cell types from the prefrontal cortex.
 
 ### Remacor.R
-This file contains code and helper functions used to carry out the remacor analysis in Figure 5
+This file contains code and helper functions used to carry out the remacor analysis in Figure 5.
 
 ### qtl_analysis
 
-Folder contains scripts for prepping files for qtl detection with MMQTL.
+Folder contains scripts for qtl detection with MMQTL and analysis relevant to Figure 6.
 
 - 1_peer_factors.R: generates PEER factors using expression matrix
 - 2_prep_mmqtl_files.R: generates residualized matrix using PEER factors and bed file containing gene information
