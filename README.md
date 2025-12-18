@@ -22,6 +22,9 @@ produces the following output files:
 - outputs/Fig_S3_coleman__[celltype1]__[celltype2].pdf # Correlation of log2(cpm+1) counts between our RNA-seq data and external RNA-seq dataset of 3 cell types from parahippocampal gyrus.
 - outputs/Fig_S3_hauberg__[celltype1]__[celltype2].pdf # Correlation of log2(cpm+1) counts between our ATAC-seq data and external ATAC-seq data from 4 cell types from the prefrontal cortex.
 
+### Remacor.R
+This file contains code and helper functions used to carry out the remacor analysis in Figure 5
+
 ### qtl_analysis
 
 Folder contains scripts for prepping files for qtl detection with MMQTL.
