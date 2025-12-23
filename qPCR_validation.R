@@ -9,7 +9,7 @@ library(patchwork)
 ##### CONFIG ###################################################################
 
 {
-  ROOT = "~/Desktop/molecular_profiling/" # !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!
+  ROOT = "~/Desktop/molecular_profiling/molecular_profiling/" # !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!
   dir.create(file.path(ROOT, "outputs"))
 }
 
@@ -97,10 +97,10 @@ df = (rbind.data.frame(fc_results[,c("Transcript_ID", "logFC", "method", "SE")],
   
   age_plot = ggplot(targets[!duplicated(targets$Donor_ID),], aes(x = Age.of.death, color = Condition, fill = Condition)) + geom_density(alpha = 0.3) + 
     facet_wrap(~ Sex) + labs(title = "Age.of.death Distribution by Condition and Sex", x = "Age at Death", y = "Density") +
-    theme_minimal() + scale_fill_nejm()
+    theme_minimal() + scale_fill_nejm() + scale_color_nejm()
   
   combined_plot = ph_plot + rin_plot + age_plot + plot_layout(ncol = 3)
-  pdf(file=file.path(ROOT, "outputs", "qPCR_a.pdf"), width=10, height=4); print(combined_plot); dev.off()
+  pdf(file=file.path(ROOT, "outputs", "Fig_S10a.pdf"), width=10, height=4); print(combined_plot); dev.off()
 }
 
 ################################################################################
@@ -161,15 +161,15 @@ df = (rbind.data.frame(fc_results[,c("Transcript_ID", "logFC", "method", "SE")],
   
   # Bottom plot: qPCR
   qPCR_expr_summary$Transcript_ID = ordered(qPCR_expr_summary$Transcript_ID, levels=c("ENST00000496818", "ENST00000465278", "ENST00000483136", "ENST00000492150", "ENST00000437508", "ENST00000502281", "ENST00000460908", "ENST00000338700"))
-  qPCR_avgExprPlot = ggplot(qPCR_expr_summary, aes(x = Transcript_ID, y = mean_del_ct)) +
+  qPCR_avgExprPlot = ggplot(qPCR_expr_summary, aes(x = Transcript_ID, y = -mean_del_ct)) +
     geom_col(fill = pal_nejm("default")(8)[3]) +
-    geom_errorbar(aes(ymin = mean_del_ct - sd_del_ct, ymax = mean_del_ct + sd_del_ct), width = 0.2) +
+    geom_errorbar(aes(ymin = -mean_del_ct - sd_del_ct, ymax = -mean_del_ct + sd_del_ct), width = 0.2) +
     labs(y = "delta(CT) [qPCR]", x = "Transcript Target") +
     theme_minimal() + theme(axis.text.x = element_text(angle = 30, hjust = 1)) + scale_fill_manual(values = pal_nejm("default")(8)[4:8])
-  
+  qPCR_avgExprPlot
   # Combine plots
   finalPlot = rnaseq_avgExprPlot / qPCR_avgExprPlot + plot_layout(heights = c(1, 1))
-  pdf(file=file.path(ROOT, "outputs", "qPCR_c.pdf"), width=10, height=6); print(finalPlot); dev.off()
+  pdf(file=file.path(ROOT, "outputs", "Fig_S10c.pdf"), width=10, height=6); print(finalPlot); dev.off()
 }
 
 ################################################################################
@@ -194,4 +194,4 @@ logfc_plot = ggplot(df, aes(x = Transcript_ID, y = logFC, fill = method)) +
   ) +   scale_fill_manual(values = pal_nejm("default")(8)[c(4,3)])
 logfc_plot
 
-pdf(file=file.path(ROOT, "outputs", "qPCR_d.pdf"), width=10, height=6); print(logfc_plot); dev.off()
+pdf(file=file.path(ROOT, "outputs", "Fig_S10d.pdf"), width=10, height=6); print(logfc_plot); dev.off()

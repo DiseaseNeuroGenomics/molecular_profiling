@@ -19,12 +19,12 @@ library(tidyr)
 {
   ROOT = "~/Desktop/molecular_profiling/molecular_profiling/" # !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!!
   
-  QC_ATACSEQ = file.path(ROOT, "inputs", "qc_all_atac.tsv")  # Pre-calculated QC metrics for ATAC-seq samples from processing computational pipeline
-  QC_RNASEQ = file.path(ROOT, "inputs", "qc_all_rna.tsv")    # Pre-calculated QC metrics for RNA-seq samples from processing computational pipeline
+  QC_ATACSEQ = file.path(ROOT, "inputs", "qc_all_atac.csv")  # Pre-calculated QC metrics for ATAC-seq samples from processing computational pipeline
+  QC_RNASEQ = file.path(ROOT, "inputs", "qc_all_rna.csv")    # Pre-calculated QC metrics for RNA-seq samples from processing computational pipeline
   KINSHIP_ATACSEQ_SNPPARRAY = file.path(ROOT, "inputs", "kinship_atacseq_snparray.csv")  # Pre-calculated comparison between SNPs called from ATAC-seq reads and SNParrays 
   KINSHIP_RNASEQ_SNPPARRAY = file.path(ROOT, "inputs", "kinship_rnaseq_snparray.csv")    # Pre-calculated comparison between SNPs called from RNA-seq reads and SNParrays 
   
-  ATACSEQ_PEAKS =  file.path(ROOT, "inputs", "atacseq_peaks.RDS")                        # Peaks called from ATAC-se data
+  ATACSEQ_PEAKS =  file.path(ROOT, "inputs", "atacseq_peaks.RDS")                        # Peaks called from ATAC-seq data
   ATACSEQ_COUNT_MATRIX_RAW = file.path(ROOT, "inputs", "atacseq_count_matrix_raw.RDS")   # Raw read count matrix for ATAC-seq data
   ATACSEQ_COUNT_MATRIX_ADJ = file.path(ROOT, "inputs", "atacseq_count_matrix_adj.RDS")   # Covariate-adjusted read count matrix for ATAC-seq data
   ATACSEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT = file.path(ROOT, "inputs", "atacseq_count_matrix_residualized_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
@@ -212,8 +212,10 @@ library(tidyr)
   qcRna$geno_PC1 = genoPcRnaseq[match(qcRna$ID, genoPcRnaseq$ID),"geno_PC1"]
   qcRna$geno_PC2 = genoPcRnaseq[match(qcRna$ID, genoPcRnaseq$ID),"geno_PC2"]
   qcRna$geno_PC3 = genoPcRnaseq[match(qcRna$ID, genoPcRnaseq$ID),"geno_PC3"]
+  qcRna$cell_subtype_abbreviation = toupper(qcRna$cell_subtype_abbreviation)
   write.csv(qcRna, file="/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/atacseq/analysis/all/deconv_rnaseq.csv", row.names=F)
-
+  write.csv(qcRna, file="~/Desktop/molecular_profiling/molecular_profiling//inputs/qc_all_rna.csv", row.names=F)
+  
   deconvAtacseq = read.csv("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/atacseq/analysis/all/deconv_rnaseq.csv")
   genoPcAtacseq = read.csv("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/atacseq/analysis/all/reviewer_ancestryPC/allInfo.csv")
   qcAtac$deconvolution_GABA = deconvAtacseq[match(qcAtac$ID, deconvAtacseq$ID),"deconvolution_GABA"]
@@ -223,7 +225,9 @@ library(tidyr)
   qcAtac$geno_PC1 = genoPcAtacseq[match(qcAtac$ID, gsub("Sample_", "", genoPcAtacseq$ID)),"geno_PC1"]
   qcAtac$geno_PC2 = genoPcAtacseq[match(qcAtac$ID, gsub("Sample_", "", genoPcAtacseq$ID)),"geno_PC2"]
   qcAtac$geno_PC3 = genoPcAtacseq[match(qcAtac$ID, gsub("Sample_", "", genoPcAtacseq$ID)),"geno_PC3"]
+  qcAtac$cell_subtype_abbreviation = gsub("GABAergic", "GABA", gsub("glutamatergic", "GLU", gsub("oligodendrocytes", "OLIG", gsub("microgliaAndAstrocytes", "MGAS", qcAtac$cell_subtype_abbreviation))))
   write.csv(qcAtac, file="/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/rnaseq/analysis/gene_cell_all__norm_none__BIC_2_in_0.05__CPM_1__in_0.2/deconv_atacseq.csv", row.names=F)
+  write.csv(qcAtac, file="~/Desktop/molecular_profiling/molecular_profiling//inputs/qc_all_atac.csv", row.names=F)
   ###################################
   
   # Custom fixes
