@@ -18,9 +18,13 @@ produces the following output files:
 - outputs/Fig_5_a.pdf.pdf # Numbers of dysregulated transcripts as well as genes with at least one differentially expressed transcript (FDR < 0.05) stratified by cell type. 
 - outputs/Fig_5_d.pdf.pdf # Comparison of ENST00000465278 and ENST00000483136 expression in the study profiling OPC and mature oligodendrocytes (MO) in infants and adults.
 - outputs/Fig_5_f.pdf.pdf # Comparison of ENST00000338700 and ENST00000460908 expression in the study profiling OPC and MO in infants and adults.
-- outputs/Fig_S1_*.pdf    # Quality control for RNA-seq and ATAC-seq data. 
+- outputs/Fig_S1_*.pdf    # Demographic and clinical characteristics of SCZ cases and controls. 
+- outputs/Fig_S2_*.pdf    # Quality control for RNA-seq and ATAC-seq data. 
 - outputs/Fig_S3_coleman__[celltype1]__[celltype2].pdf # Correlation of log2(cpm+1) counts between our RNA-seq data and external RNA-seq dataset of 3 cell types from parahippocampal gyrus.
 - outputs/Fig_S3_hauberg__[celltype1]__[celltype2].pdf # Correlation of log2(cpm+1) counts between our ATAC-seq data and external ATAC-seq data from 4 cell types from the prefrontal cortex.
+- outputs/Fig_S5_*.pdf    # Comparison of signal for marker genes in RNA-seq (a) and promoter OCRs of marker genes in ATAC-seq (b) across cell types.
+- outputs/Fig_S6_*.pdf    # Estimated cell type composition for SCZ case and control samples using dTangle115 algorithm in RNA-seq (a) and ATAC-seq (b).
+- outputs/Fig_S9_*.pdf    # Concordance between differential gene expression results from this study and those from PsychAD).
 
 ### Remacor.R
 This file contains code and helper functions used to carry out the remacor analysis in Figure 5.
