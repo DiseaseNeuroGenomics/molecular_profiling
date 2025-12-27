@@ -17,15 +17,27 @@ MY_BLACKLIST_hg38 = file.path(ROOT, "inputs", "hg38.blacklist.bed")
 ENSEMBL_INFO_hg38 = file.path(ROOT, "inputs", "muchEnsemblInfo_hg38.tsv.gz")
 myGenesFallback_hg38 = file.path(ROOT, "inputs", "hg38genes")
 
-mtsv=function(x,outDir,myHeader=T,gz=F,fileBaseName=deparse(substitute(x))){
+##################################################################
+# MISC
+##################################################################
+
+myStop = function(...) eval.parent(substitute({
+  debugEnv <<- as.environment(as.list(environment(), all.names=T))
+  stop(paste0(...,". Script aborted. Variables saved to the 'debugEnv' environment for debugging purposes. To access the variables use the normal variable name preceeded by this and a dollar sign. For instance you can have a look at the big table with much information using 'debugEnv$allInfo'."),call.=F)
+}))
+
+
+mtsv = function(x,outDir,myHeader=T,gz=F,fileBaseName=deparse(substitute(x))){
   myFile=paste0(outDir, "/",  fileBaseName,".tsv",ifelse(gz,".gz",""))
   if(gz) myFile=gzfile(myFile, "w")
   write.table(x,file=myFile,sep="\t",quote=F,row.names=F,col.names=myHeader)
   if(gz) close(myFile)
 }
 
+mpdf = function(x, width=7,height=7, outDir=outDir, onefile=T) eval.parent(substitute({ pdf(paste0(outDir, "/", make.names(x),".pdf"), useDingbats=F, width=width, height=height, onefile=onefile) }))
+
 ##################################################################
-# Do tests (background version)
+# GSEA: Do tests (main function)
 ##################################################################
 # 
 # Input types:
@@ -607,9 +619,9 @@ fisherGsea=function(
 
 
 ##################################################################
-# plot gsea results
+# Plot gsea results
 ##################################################################
-#function to plot gsea results such as those from fisherGSEA and universalGsea
+# Function to plot gsea results such as those from fisherGSEA and universalGsea
 
 gseaPlotter=function(
     myGseas,
@@ -703,8 +715,6 @@ gseaPlotter=function(
   return(invisible(z))
 }
 
-
-#################################
 aggGseaPlotter=function(df,annoName,outDir,doCluster=F,geneSets=NA,customClustMethod=NA,showMissingFields=T,customPlotArgs=NULL,plotScale=1){
   message(paste0("plotting ", annoName))
   
@@ -816,7 +826,6 @@ aggGseaPlotter=function(df,annoName,outDir,doCluster=F,geneSets=NA,customClustMe
   }
 }
 
-
 plotGseaBiclust=function(df,outDir,annoName){
   library(reshape2)
   library(gplots)
@@ -835,7 +844,6 @@ plotGseaBiclust=function(df,outDir,annoName){
   dev.off()
   sink()
 }
-
 
 singleGseaPlotter=function(df,annoName,outDir,topResults=5){
   library(ggplot2)
@@ -860,5 +868,715 @@ singleGseaPlotter=function(df,annoName,outDir,topResults=5){
   }
   dev.off()
 }
+
+addGseaInfoAndPlot=function(myInfo,geneMetaSets,metaSet,outDir=NULL,addGseaInfo=T,forceNoPlot=F,forceNoOutDirCheck=T,setMetadata=NULL){
+  myInfo=myInfo[order(myInfo$pval),]
+  myInfo$Bonf_AdjP = p.adjust(myInfo$pval, method = "bonferroni")
+  myInfo$BH_AdjP = p.adjust(myInfo$pval, method = "BH")
+  myInfo$Z= qnorm(1-(myInfo$pval)/2)
+  myInfo$LogP = -log10(myInfo$pval)
+  myInfo$FDR_AdjP=NA #not currently used
+  if(addGseaInfo)
+    myInfo=cbind(myInfo, geneMetaSets[[metaSet]]$metadata[match(myInfo$Reference,geneMetaSets[[metaSet]]$metadata$name),])
+  myInfo$name=NULL
+  rownames(myInfo)=NULL
+  if(!is.null(setMetadata)){
+    myInfo$SetFullName=setMetadata[match(myInfo$Set,setMetadata$Set),"SetFullName"]
+  }
+  if(!is.null(outDir) & !forceNoPlot) gseaPlotter(setNames(list(myInfo),metaSet),geneMetaSets[metaSet],outDir,forceNoOutDirCheck=forceNoOutDirCheck) #NOTE: this might never work with forceNoOutDirCheck==F because of same dir created multiple times
+  myInfo
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#################################
+# Calc and plot PCAs as well as their corr with
+#
+# if you don't want to account for all covariates in multiple testing (as you might be plotting some cols just for show)
+# you can specify which cols to account for with covariateColsToAccountForInMultipleTesting
+#
+# Note:always includes at least one PCA
+
+calcAndPlotPCAs=function(covariateColsToExamine,expMat,allInfoSub,myClass,myName,pcaCutOff=0.01,covariateColsToAccountForInMultipleTesting=NULL){ 
+  #a list with variables to return
+  w=list()
+  
+  if(nrow(allInfoSub)==1){
+    message(paste("For PCA there was only one sample in", myClass," - Returning NULL."))
+    w$pcaCorr=NULL
+    return(w)
+  }
+  
+  #estimate variance in data by PC
+  z = t(expMat[,allInfoSub$ID])    
+  z = z[ , apply(z, 2, var) != 0]        # remove OCRs/genes with zero variation (it can happen in case of subsets of samples, e.g. _neuron / _glia)
+  w$pca.res=prcomp(z, scale.=T, retx=T)
+  w$pca.res$rotation=NULL #save mem
+  rm(z)
+  
+  #add variance explained info
+  w$pca.varFrac=w$pca.res$sdev^2/sum(w$pca.res$sdev^2)
+  
+  #examine how much variance is explained by PCs > 1%, but always include one
+  numberOfPCAsToInclude=max(1,sum(w$pca.varFrac>pcaCutOff))
+  
+  #run correlation for all covs
+  w$pcaCorr=generalizedColumnCorr(w$pca.res$x[,1:numberOfPCAsToInclude,drop=F],allInfoSub[,covariateColsToExamine,drop=F])$corInfo
+  w$pcaCorrFull=generalizedColumnCorr(w$pca.res$x[,1:numberOfPCAsToInclude,drop=F],allInfoSub[,covariateColsToExamine,drop=F])
+  colnames(w$pcaCorr)=sub("^covar1$","PC",colnames(w$pcaCorr))
+  colnames(w$pcaCorr)=sub("^covar2$","covar",colnames(w$pcaCorr))
+  
+  #add p-values tanking into account only a subset of features if desired
+  if(is.null(covariateColsToAccountForInMultipleTesting)) covariateColsToAccountForInMultipleTesting=covariateColsToExamine
+  z=w$pcaCorr$covar %in% covariateColsToAccountForInMultipleTesting
+  w$pcaCorr$targetedBH_AdjP=NA
+  w$pcaCorr$targetedBH_AdjP[z]=p.adjust(w$pcaCorr$p[z],method="BH")
+  w$pcaCorr$minBH_AdjP=w$pcaCorr$BH_AdjP
+  w$pcaCorr$minBH_AdjP[z]=pmin(w$pcaCorr$targetedBH_AdjP[z],w$pcaCorr$BH_AdjP[z])
+  
+  #add misc info
+  w$pcaCorr$subset=myClass
+  w$pcaCorr$PC_num=as.numeric(sub("^PC","",w$pcaCorr$PC))
+  w$pcaCorr$varFrac=w$pca.varFrac[w$pcaCorr$PC_num]
+  w$pcaCorr$PC_with_pct=paste0(w$pcaCorr$PC," (",100*signif(w$pcaCorr$varFrac,3),"%)")
+  
+  #M ake plots
+  w$mainPlot_0_05 = plotPcaCovariateCorr(w$pcaCorr[w$pcaCorr$minBH_AdjP<0.05,],paste0(myName,"_",myClass,"_FDR_0p05"))
+  w$mainPlot_0_10 = plotPcaCovariateCorr(w$pcaCorr[w$pcaCorr$minBH_AdjP<0.1,],paste0(myName,"_",myClass,"_FDR_0p1"))
+  w$mainPlot_0_20 = plotPcaCovariateCorr(w$pcaCorr[w$pcaCorr$minBH_AdjP<0.2,],paste0(myName,"_",myClass,"_FDR_0p2"))
+  
+  myPlot = plotPcaCovariateCorr(w$pcaCorr,paste0(myName,"_",myClass,"_unfiltered"))
+  mpdf(paste0("MDS_",myName));print(myPlot); dev.off()
+  
+  return(w)
+}
+
+# Correlation estimate btw. all combinations of cols of one or two data frames. Can contain factor and numeric values. If only one df is provided we take the correlation with itself
+# Note that we like many of the other functions assume that "outDir" is defined and it is used as the output directory for the plots.
+generalizedColumnCorr=function(df1,df2=NULL,plotTitle=NULL,excludeSelfComparisons=T,useAbsCorrForDistWhenTwoDfs=T){ #I haven't tested plotting with df2!=NULL nor what happens with NAs
+  library(ggplot2)
+  library(gplots)
+  library(reshape2)
+  library(parallel)
+  w=new.env()
+  
+  #if no df2 input test against self
+  if(is.null(df2)){
+    df2=df1
+    w$onlyOneInput=T
+  }else{
+    w$onlyOneInput=F
+  }
+  
+  #test all combinations
+  w$corInfo=expand.grid(covar1=colnames(df1),covar2=colnames(df2),stringsAsFactors=F) 
+  w$corInfo=cbind(
+    w$corInfo,
+    do.call(rbind,  
+            mcmapply(function(x,y) #haven't tested if it's actually faster with mcmapply than mapply
+              as.data.frame(generalizedCorr(df1[,x],df2[,y]),stringsAsFactors=F)
+              ,w$corInfo[,1],w$corInfo[,2],USE.NAMES=F,SIMPLIFY=F)
+    ) 
+  )
+  rownames(w$corInfo)=NULL
+  
+  #By default get rid of self comparisons
+  if(w$onlyOneInput & excludeSelfComparisons){
+    w$corInfo$p[w$corInfo$covar1==w$corInfo$covar2]=NA
+    w$corInfo$r[w$corInfo$covar1==w$corInfo$covar2]=NA
+  }
+  
+  #add adjusted pvals NOTE: not relevant if self comparisons are included. p.adjust ignores NAs
+  w$corInfo$Bonf_AdjP=p.adjust(w$corInfo$p, method="bonferroni")
+  w$corInfo$BH_AdjP=p.adjust(w$corInfo$p, method="BH")
+  w$corInfo=w$corInfo[order(-abs(w$corInfo$r)),]
+  w$corInfo$plotLabel=""
+  w$corInfo$plotLabel[w$corInfo$p<0.05]="·" 
+  w$corInfo$plotLabel[w$corInfo$BH_AdjP<0.05]="#"
+  
+  #make matrices of the p and r values as well as labels
+  w$pMat=acast(w$corInfo,covar1~covar2,value.var="p")
+  w$rMat=acast(w$corInfo,covar1~covar2,value.var="r")
+  w$labelMat=acast(w$corInfo,covar1~covar2,value.var="plotLabel")
+  
+  #plot colors
+  w$myPalette2way=colorRampPalette(rev(c("#67001F","#B2182B","#D6604D","#F4A582","#FDDBC7","#F7F7F7","#D1E5F0","#92C5DE","#4393C3","#2166AC","#053061")),space="Lab")
+  w$myPalette=colorRampPalette(c("#F7FCF5", "#E5F5E0", "#C7E9C0", "#A1D99B", "#74C476", "#41AB5D", "#238B45", "#006D2C", "#00441B"),space="Lab")
+  
+  #shared ggplot stuff
+  basePlot=ggplot(w$corInfo,aes(covar1,covar2))+
+    ggtitle(ifelse(is.null(plotTitle),"Correlations",plotTitle)) +
+    scale_y_discrete(expand = c(0, 0)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    theme_classic() +
+    theme(axis.text=element_text(colour="black")) +
+    theme(axis.title=element_blank(), axis.text.x=element_text(angle = 45, hjust = 1)) +
+    coord_fixed()
+  
+  #plot for estimates
+  w$rPlot = basePlot  + geom_tile(aes(fill=r))+ scale_fill_gradientn(colours=w$myPalette2way(100),limits=c(-1,1))#*max(abs(w$corInfo$r),na.rm=T))
+  w$rPlotWithLabs = w$rPlot + geom_text(aes(label=plotLabel),alpha=0.7)
+  
+  #plot for p-values
+  w$pPlot = basePlot + geom_tile(aes(fill=-log(p))) + scale_fill_gradientn(colours = w$myPalette(100),trans="sqrt")
+  w$pPlotWithLabs = w$pPlot + geom_text(aes(label=plotLabel),alpha=0.7)
+  
+  #clustered plots #depending on plotAbs is selected the order can change slightly by chance because of the way heatmap.2 handles the data, but the clustering heights are unchanged
+  w$clusterPlot=function(plotAbs=F,plotLabels=T){
+    myCellnote=labelMat
+    if(plotLabels==F) myCellnote[]=""
+    heatmap.2(
+      if(plotAbs) abs(rMat) else rMat,
+      cellnote=myCellnote,
+      main=ifelse(is.null(plotTitle),"Correlations",plotTitle),
+      margins=c(30,30),
+      notecol="black",
+      trace="none",
+      keysize=1.0,
+      na.color="#999999",
+      distfun=function(x) {if(onlyOneInput){as.dist(1-abs(x))}else{dist(if(useAbsCorrForDistWhenTwoDfs) abs(x) else x)}}, #use 1-corr as dist when compared to self
+      symm=onlyOneInput,
+      col=ifelse(plotAbs,myPalette,myPalette2way),
+      symkey=!plotAbs,
+      symbreaks=!plotAbs
+    )
+  }
+  environment(w$clusterPlot)=w
+  
+  return(w)
+}
+
+# For cont vs cat r is the eta. for cat vs cat it is the cramer
+generalizedCorr=function(a,b,na.rm=T){
+  library(vcd)
+  
+  if(na.rm){
+    z=is.na(a)|is.na(b)
+    if(all(z)){
+      warning("There were only NA comparisons in input to generalizedCorr")
+      return(list(p=NA,r=NA))
+    }
+    a=a[!z]
+    b=b[!z]
+  }
+  
+  if(is.numeric(a) & is.factor(b)){ #if numeric and factor then switch
+    z=a; a=b; b=z; rm(z)
+  }
+  
+  if(is.numeric(a) & is.numeric(b)){
+    s=cor.test(a,b)
+    p=s$p.value
+    r=s$estimate
+    
+  }else if(is.factor(a) & is.numeric(b)){
+    if(length(unique(a))>1){
+      s=anova(lm(b~a))
+      p=s[1,"Pr(>F)"]
+      r=sqrt(s[1,"Sum Sq"]/sum(s$`Sum Sq`)) #The "eta" stats.stackexchange.com/questions/119835
+    }else{
+      warning("data contained factor with only one level resulting in NAs")
+      p=NA
+      r=NA
+    }
+    
+  }else if(is.factor(a) & is.factor(b)){
+    s=vcd::assocstats(xtabs(~a+b))
+    p=s$chisq_tests["Pearson","P(> X^2)"]
+    r=s$cramer
+    
+  }else{
+    warning("data contained non numeric / non factor inputs resulting in NAs")
+    p=NA
+    r=NA
+  }
+  
+  return(list(p=p,r=r))
+}
+
+# Function to plot pca correlations
+plotPcaCovariateCorr=function(myDf,myExtendedName){
+  myPalette2way=colorRampPalette(rev(c("#67001F","#B2182B","#D6604D","#F4A582","#FDDBC7","#F7F7F7","#D1E5F0","#92C5DE","#4393C3","#2166AC","#053061")),space="Lab")
+  
+  #Remove those that are NA in both
+  myDf=myDf[!(is.na(myDf$PC) & is.na(myDf$covar)),]
+  
+  #make proper order of PCAs
+  myDf=myDf[order(myDf$PC_num),]
+  myDf=myDf[order(myDf$subset),]
+  myDf$PC_with_pct=ordered(myDf$PC_with_pct,levels=unique(myDf$PC_with_pct))
+  
+  #Add plotLabel for targeted bh adjust if we don't want to correct for all covars
+  if(nrow(myDf)){ #this function is sometimes called with an empty data frame
+    myDf$targetedPlotLabel=""
+    myDf$targetedPlotLabel[myDf$p<0.05]="·"
+    myDf$targetedPlotLabel[is.na(myDf$targetedBH_AdjP)]="-"
+    myDf$targetedPlotLabel[myDf$targetedBH_AdjP<0.05]="#"
+  }else{
+    myDf$targetedPlotLabel=vector()
+  }
+  
+  #find scale
+  if(!all(is.na(myDf$r) | is.infinite(myDf$r))){
+    myLims=max(abs(myDf$r[!is.na(myDf$r) & !is.infinite(myDf$r)]))
+    if(myLims==0) myLims=1
+    myLims=c(-1,1)*myLims
+  }else{ myLims=c(-1,1) }
+  
+  
+  myPlot=ggplot(myDf, aes(covar,PC_with_pct, fill=r)) +
+    geom_tile() +
+    scale_fill_gradientn(colours = myPalette2way(100),limits=myLims) +
+    theme_classic() +
+    theme(axis.text=element_text(colour="black")) +
+    scale_y_discrete(expand = c(0, 0)) +
+    scale_x_discrete(expand = c(0, 0)) +
+    coord_fixed() +
+    theme(axis.text.y=element_text(size=8,colour="black")) +
+    theme(axis.text.x=element_text(angle=90, vjust=0.5, hjust=1)) +
+    theme(panel.background = element_rect(fill = "#aaaaaa"))
+  
+  myWidth=3+0.2*length(unique(myDf$covar))
+  myHeight=5+0.2*length(unique(myDf$PC))
+  
+  mainPlotCommand = myPlot+ggtitle(myExtendedName,"Poundsign: fdr significant. Dot: nominally significant. dash: not considered in fdr")+geom_text(aes(label=targetedPlotLabel),alpha=0.7)
+  mpdf(paste0("misc_PCA_corr_",myExtendedName), width=myWidth, height=myHeight); 
+  print(myPlot+ggtitle(myExtendedName,"Poundsign: fdr significant. Dot: nominally significant")+geom_text(aes(label=plotLabel),alpha=0.7))
+  if(any(is.na(myDf$targetedBH_AdjP))) # we have also tried to fdr correct for only a subset of the pvalues. Plot that
+    print(myPlot+ggtitle(myExtendedName,"Poundsign: fdr significant. Dot: nominally significant. dash: not considered in fdr")+geom_text(aes(label=targetedPlotLabel),alpha=0.7))
+  print(myPlot+ggtitle(myExtendedName));
+  dev.off()
+  
+  if(length(unique(myDf$subset)) > 1){
+    myHeight=8+0.2*length(unique(myDf$origPC))*length(unique(myDf$subset))
+    myPlot=myPlot + facet_wrap(~subset,ncol=1,scales="free_y",strip.position="right") + theme(strip.background=element_blank())
+    mpdf(paste0("misc_PCA_corr_",myExtendedName,"_facet"), width=myWidth, height=myHeight);
+    print(myPlot+ggtitle(myExtendedName,"Poundsign: fdr significant. Dot: nominally significant")+geom_text(aes(label=plotLabel),alpha=0.7))
+    if(any(is.na(myDf$targetedBH_AdjP))) # we have also tried to fdr correct for only a subset of the pvalues. Plot that
+      print(myPlot+ggtitle(myExtendedName,"Poundsign: fdr significant. Dot: nominally significant. dash: not considered in fdr")+geom_text(aes(label=targetedPlotLabel),alpha=0.7))
+    print(myPlot+ggtitle(myExtendedName));
+    dev.off()
+  }
+  return(mainPlotCommand)
+}
+
+##################################################################
+# Generic BIC function with optional automatic covar selection
+genericBicCalc=function(expMat,allInfo,myModels,myName=NULL,baseModel=NULL,iterative=F,covarFracCutOff=0.01,deltaBicCutOff=5,normalize.method="none"){ #mModels is a named vector #covarFracCutOff and deltaBicCutOff are only relevant for iterative=T
+  
+  if(!length(myModels)){
+    message("No models to be analysed provided. Returning with selectedCovars as NULL.")
+    return(list(selectedCovars=NULL))
+  }
+  
+  isDgeObj=!is.matrix(expMat)
+  if(isDgeObj){
+    dgeObj=expMat
+    rm(expMat)
+  }
+  
+  message(paste0(
+    if(is.null(myName)){"\nStarted BIC analysis."}else{paste("\nStarted BIC analysis with this name:", myName)},
+    ifelse(isDgeObj,". Looks like a dgeObj, so we use weights and voom normalize for each iteration.",". Looks like a matrix, so we do not use weights nor voom normalize in each iteration.")
+  ))
+  
+  if(is.null(baseModel) & iterative) stop("Iterative fitting without a base model is not yet implemented in genericBicCalc")
+  
+  #Format model input as needed
+  if(!is.list(myModels))  myModels=as.list(myModels)
+  if(is.null(names(myModels)))  names(myModels)=sapply(myModels,paste,collapse=" + ",USE.NAMES=F)
+  
+  #vars for doing iterative fitting
+  selectedCovars=list()
+  myModelsOrig=myModels
+  baseModelOrig=baseModel
+  aggBicObj=list()
+  iterationNumber=1
+  
+  #Test that we don't have invariant column or missingness which lm/bic chokes on (not fool-proof)
+  testedCovars=unique(unname(c(baseModel,unlist(myModels))))
+  invariantCols=testedCovars[sapply(testedCovars,function(x)length(unique(allInfo[,x]))==1,USE.NAMES=F)]
+  if(length(invariantCols)) stop(paste0("Error: one or more column(s) in BIC model is/are invariant. This breaks function >> genericBicCalc <<. Please exclude them:", paste(invariantCols,collapse="; ")))
+  if(any(is.na(unlist(allInfo[,testedCovars])))) stop("NA found in one or more of the covariate columns. This breaks function >> genericBicCalc <<")
+  rm(testedCovars,invariantCols)
+  
+  #Run BIC analysis at least once. the smaller the BIC, the better the fit.
+  repeat{
+    #if baseModel is given, we take it as if all the other models should be added to it
+    if(!is.null(baseModel)){
+      allModels=c(list(baseModel=baseModel), sapply(myModels,function(x)c(baseModel,x),simplify=F))
+    }else{
+      allModels=myModels
+    }
+    
+    if(any(duplicated(names(allModels)))) myStop("unfortunate naming of models caused duplicated list names in function >> genericBicCalc <<")
+    
+    #voom norm if input was dge object
+    if(isDgeObj){
+      if(is.null(baseModel)){
+        voomDesign=NULL
+        voomDesignString=NULL
+      }else{
+        voomDesignString=paste("~ 0 +", paste(baseModel,collapse=" + "))
+        voomDesign=model.matrix(as.formula(voomDesignString),allInfo)
+      }
+      voomObj=voom(dgeObj,voomDesign,plot=F,normalize.method=normalize.method)
+      expMat=voomObj$E
+      expWeights=voomObj$weights
+      rm(voomObj)
+    }else{
+      voomDesignString=NULL
+    }
+    
+    
+    #HELPER: function to split a numbered task into parts for parallel processing. Returns a list something like: [[1]]: 1,2,3 [[2]]: 4,5,6 [[3]]: 7,8
+    chunkIt=function(myLength,chunksPerCore=2L,mc.cores=getOption("mc.cores", 2L)){
+      x=seq(myLength)
+      chunks=chunksPerCore*mc.cores
+      split(x, sort(x%%chunks))
+    }
+    
+    #HELPER: function to for each peak in the chunk and for each model, calculate the BIC of all provided fits. 
+    calcBicHelper=function(chunk){
+      sapply(names(allModels),function(myModel){
+        formulaString=paste("expMat[chunk[i],] ~ ", paste(allModels[[myModel]], collapse=" + "))
+        sapply(seq(length(chunk)),function(i) BIC(lm(as.formula(formulaString),data=allInfo,weights=if(isDgeObj) expWeights[chunk[i],] else NULL))  ,  USE.NAMES=F)
+      })
+    }
+    
+    #calc bic for all peaks in all models
+    bicResults=do.call(rbind,mcmapply(calcBicHelper,chunkIt(nrow(expMat)),USE.NAMES=F,SIMPLIFY=F))
+    
+    #Now summarize these results compared to the first model (not always relevant)
+    bicComp=do.call(rbind,lapply(colnames(bicResults)[-1],function(x){
+      sLower=sum( bicResults[,1] > bicResults[,x] + deltaBicCutOff )
+      sHigher=sum( bicResults[,1] < bicResults[,x] - deltaBicCutOff )
+      data.frame(
+        iterationNumber=iterationNumber,
+        covarName=x,
+        minuDeltaBicSumPerPeak=sum(bicResults[,1] - bicResults[,x])/nrow(bicResults),
+        countGenesWithLowerBic=sum(bicResults[,1] > bicResults[,x]),
+        fracGenesWithLowerBic=sum(bicResults[,1] > bicResults[,x])/nrow(bicResults),
+        strict_countGenesWithLowerBic=sLower,
+        strict_countGenesWithHigherBic=sHigher,
+        strict_deltaCount=sLower-sHigher,
+        strict_deltaFrac=(sLower-sHigher)/nrow(bicResults),
+        covarModel=paste(allModels[[x]],collapse=" + "),
+        comparedToName=names(allModels)[1],
+        comparedToModel=paste(allModels[[1]],collapse=" + "),
+        stringsAsFactors=F
+      )
+    }))
+    
+    #if iterative sort bicComp by score:
+    if(iterative)
+      bicComp=bicComp[order(-bicComp$strict_deltaFrac),]
+    
+    #put most interesting stuff in a list
+    iterationObj=list(bicResults=bicResults, bicComp=bicComp, myModels=myModels, baseModel=baseModel, allModels=allModels, voomDesignString=voomDesignString)
+    
+    #if non-iterative fitting: we just fit the model once and return that
+    if(!iterative){
+      if(!is.null(myName))
+        write.table(bicComp, file=paste0(outDir,"/misc_BIC_",myName,".tsv"), sep="\t", quote=F, row.names=F)
+      return(iterationObj)
+    }
+    
+    aggBicObj[[iterationNumber]]=iterationObj
+    
+    #since we are doing an iterative fit add best one if any to base model
+    if(bicComp$strict_deltaFrac[1] >= covarFracCutOff){
+      message(paste("added covar",bicComp$covarName[1]))
+      selectedCovars=c(selectedCovars,myModelsOrig[bicComp$covarName[1]])
+      baseModel=c(baseModelOrig,unlist(selectedCovars))
+      myModels=myModelsOrig[setdiff(names(myModelsOrig),names(selectedCovars))]
+    }
+    
+    #if no var was informative or we've already added everything, then do stuff
+    aggBicComp=do.call(rbind, lapply(1:length(aggBicObj),function(x)aggBicObj[[x]]$bicComp)) #extensive table of model testing
+    aggBicTopModel=aggBicComp[!duplicated(aggBicComp$iterationNumber),] #just the best one from each iteration
+    if(!is.null(myName))
+      write.table(aggBicComp, file=paste0(outDir,"/BIC_",myName, "_", iterationNumber,".tsv"), sep="\t", quote=F, row.names=F)  # For time being I want to have save after each iteration (as I have problems to get longer normalations)
+    if(bicComp$strict_deltaFrac[1] < covarFracCutOff | iterationNumber == length(myModelsOrig)){
+      return(list(aggBicObj=aggBicObj, aggBicComp=aggBicComp,aggBicTopModel=aggBicTopModel,myModelsOrig=myModelsOrig, baseModelOrig=baseModelOrig, selectedCovars=selectedCovars))
+    }
+    
+    iterationNumber=iterationNumber+1
+  }
+}
+
+##################################################################
+# Automatically generate contrast strings for the lima contrasts.fit
 ##################################################################
 
+#################################
+#helper to generate the individual contrast strings based on two sets of samples
+genContrastHelper=function(allInfo,selA,selB,comparisonName="unknown",returnJustStrings=F,groupByCol="Groups"){
+  a=unique(allInfo[selA,groupByCol])
+  b=unique(allInfo[selB,groupByCol])
+  if(length(intersect(a,b))) myStop("In generating contrasts for limma there were overlap between the two groups to be compared, which isn't allowed")
+  eq=paste0(
+    "(",paste(paste0(groupByCol,a),collapse="+"),")/",length(a),
+    "-(",paste(paste0(groupByCol,b),collapse="+"),")/",length(b)
+  )
+  if(returnJustStrings){
+    return(eq)
+  }else{
+    return(data.frame(
+      eq=eq,
+      a=paste(a,collapse=";"),
+      b=paste(b,collapse=";"),
+      brain_region_abbreviation_union=paste(unique(allInfo$Brain_region_abbreviation[selA|selB]),collapse=";"),
+      comparisonName=comparisonName,
+      groupByCol=groupByCol,
+      designString=NA,
+      coeff=NA,
+      stringsAsFactors=F
+    ))
+  }
+}
+
+#################################
+# Make contrast strings from a column of interest
+genContrastStrings=function(allInfo,myCol,oneVsOther=F,groupByCol="Groups",comparisonName="unknown"){
+  myLevels=as.character(unique(allInfo[,myCol]))
+  if(oneVsOther){
+    myContrastDf=do.call(rbind,sapply(myLevels,function(x)genContrastHelper(allInfo,allInfo[,myCol]==x,allInfo[,myCol]!=x,groupByCol=groupByCol,comparisonName=comparisonName),simplify=F))
+  }else{
+    combos=expand.grid(myLevels,myLevels,stringsAsFactors=F)
+    combos=combos[,2:1]
+    combos=combos[combos[,1]!=combos[,2],]
+    rownames(combos)=paste0(combos[,1],"__",combos[,2])
+    myContrastDf=do.call(rbind,sapply(rownames(combos),function(x)genContrastHelper(allInfo,allInfo[,myCol]==combos[x,1],allInfo[,myCol]==combos[x,2],groupByCol=groupByCol,comparisonName=comparisonName),simplify=F))
+  }
+  return(myContrastDf)
+}
+
+#################################
+# Make disease contrast strings
+genDxContrastStrings=function(
+    allInfo,
+    doAll=T,
+    doCell=T,
+    doCellAndRegion=T,
+    dxColumn="Dx",
+    groupByCol="Groups"
+){
+  dxHelper=function(allInfo){
+    myLevels=setdiff(as.character(unique(allInfo[,dxColumn])),"Control")
+    dxDf = data.frame()
+    labels = c()
+    for(dx1 in unique(allInfo[,dxColumn])) {
+      for(dx2 in unique(allInfo[,dxColumn])) {
+        if(dx1 == dx2) { next }
+        dxDf = rbind(dxDf, genContrastHelper(allInfo,allInfo[,dxColumn]==dx1,allInfo[,dxColumn]==dx2, groupByCol=groupByCol))
+        labels = c(labels, paste0(dx1, "_", dx2))
+      }
+    }
+    rownames(dxDf) = labels
+    dxDf
+  }
+  
+  if(length(unique(allInfo[,dxColumn]))>1){
+    if(!"Control" %in% allInfo[,dxColumn]) myStop("for automatic Dx contrasts, control subjects must be encoed as 'Control'")
+    
+    #all cases vs all controls (not that meaningfull)
+    if(doAll){
+      dxJointly=dxHelper(allInfo)
+      dxJointly$comparisonName=paste0(tolower(dxColumn), "Jointly")
+    }else{dxJointly=NULL}
+    
+    #within cell subtype (e.g. glia_AD vs glia_Control)
+    if(doCell & length(unique(allInfo$cell_subtype))>1){
+      dxByCellSubtype=do.call(rbind,sapply(unique(allInfo$cell_subtype_abbreviation),function(x)dxHelper(allInfo[allInfo$cell_subtype_abbreviation==x,]),simplify=F))
+      dxByCellSubtype$comparisonName=paste0(tolower(dxColumn), "ByCellSubtype")
+    }else{dxByCellSubtype=NULL}
+    
+    #within cell subtype and brain region (e.g. glia_BM36_AD vs glia_BM36_Control)
+    if(doCellAndRegion & length(unique(allInfo$Brain_region_abbreviation))>1){
+      dxByCellAndRegion=do.call(rbind,sapply(unique(allInfo$Brain_region_abbreviation),function(y)do.call(rbind,sapply(unique(allInfo$cell_subtype_abbreviation),function(x)dxHelper(allInfo[allInfo$Brain_region_abbreviation==y & allInfo$cell_subtype_abbreviation==x,]),simplify=F)),simplify=F))
+      dxByCellAndRegion$comparisonName=paste0(tolower(dxColumn), "ByCellAndRegion")
+    }else{dxByCellAndRegion=NULL}
+    
+    #return it all
+    return(rbind(dxJointly,dxByCellSubtype,dxByCellAndRegion))
+  }else{
+    message("no Dx info found (only one category), so no Dx contrasts for DAC analysis were generated.")
+    return(NULL)
+  }
+}
+
+##################################################################
+# Wrapper to analyze limfit across provided coefficients
+##################################################################
+
+analyzeAndPlotFit=function(
+    eBayesFit,
+    contrastStringDf,
+    testName=NULL, #if provided we plot
+    allInfo=NULL, #see next line. It is only used to find which peaks are relevant for the different subsets
+    myIndiPeaksGr=NULL, #if provided along with allInfo we do a targeted analysis
+    housekeepingPeakInfo=NULL,
+    doUntargetedAnalysis=T, #should we do the analysis where we don't limit to the most relevant peaks
+    keepOnlyMostRelevantPeakInfo=T, #to save mem
+    keepOnlyUpPeaks=F, #to save mem
+    keepAnovaAll=T, #for the anova analysis should we keep the full set of anova results or just the significant results
+    includeDacDown=F, #most of the times we have symmetric set-ups and the downregulated genes/peaks are captured by another contrast. This is not (necessarily) the case when testing further numeric covariates. One could expand this function to also plot them. Currently these results are not plotted
+    genomeSize=2850051819, #just to calculate coverage frac (hg19)
+    pAdjustVal=0.05,
+    forceNoPlots=F, #argument to makeTopTablePlots
+    anovaDf=NULL #optional and only applicable to categorical analyses #Moved this to the end or argument list for backwards compatability
+){
+  message("\nAnalyzing and plotting contrasts.")
+  myNamer=function(x) {if(is.null(testName)){NULL}else{paste0("DAC_",testName,"_",x)}}
+  coverageCalc=function(y) sapply(y, function(x)sum(x$end-x$start+1)/genomeSize,USE.NAMES=F)
+  semicolonToVector=function(y)unlist(strsplit(y,";"))
+  trimIrrelevantPeakInfo=function(y,doTrim=keepOnlyMostRelevantPeakInfo){
+    if(doTrim){
+      lapply(y,function(x) x[,!colnames(x) %in% c("geneId", "transcriptId", "distanceToTSS", "Gene.type", "Description")])
+    }else{
+      y
+    }
+  }
+  
+  w=list()
+  w$dacInfo=contrastStringDf
+  w$anovaInfo=anovaDf
+  
+  #fit with all peaks
+  if(doUntargetedAnalysis){
+    w$dac=sapply(rownames(w$dacInfo),function(x)topTable(eBayesFit, coef=x, sort="p", n=Inf),simplify=F)  # removed topTable parameter because of dream: confint=T
+    w$dac=trimIrrelevantPeakInfo(w$dac)
+    w$dacPlots=makeTopTablePlots(w$dac,myNamer("all"),housekeepingPeakInfo=housekeepingPeakInfo,forceNoPlots=forceNoPlots)
+    
+    #anova (only categorical analyses). Acording to the limma model you simply input all unique combinations as columns to topTable to get an anova test (e.g. AB, AC BC in case of three groups)
+    if(!is.null(anovaDf)){ #FIXME: test this
+      w$anovaDacAll=sapply(rownames(w$anovaInfo),function(x)topTable(eBayesFit, coef=semicolonToVector(w$anovaInfo[x,"selectedContrastsElementNames"]), sort="F", n=Inf, confint=T),simplify=F) #"F" is the F-statistic
+      w$anovaDacAll=trimIrrelevantPeakInfo(w$anovaDacAll)
+      w$anovaDacSignificant=sapply(w$anovaDacAll,function(x)x[x$adj.P.Val<pAdjustVal,],simplify=F)
+      if(!keepAnovaAll) w$anovaDacAll=NULL
+      w$anovaInfo$anovaCount=sapply(w$anovaDacSignificant, nrow, USE.NAMES=F)
+      message("Number of significant DACs in ANOVA considering all peaks:")
+      print(w$anovaInfo[,"anovaCount",drop=F])
+      w$anovaInfo$anovaCoverageFrac=coverageCalc(w$anovaDacSignificant)
+    }
+    
+    #downregulated
+    if(includeDacDown){ #symmetric with upregulation except for comment line. Sorry for lazy coding
+      w$dacDown=sapply(w$dac,function(x)x[x$logFC<0 & x$adj.P.Val<pAdjustVal,],simplify=F)
+      #if(keepOnlyDownPeaks) w$dac=NULL
+      w$dacDownPlots=makeTopTablePlots(w$dacDown,myNamer("down"),forceNoPlots=forceNoPlots)
+      w$dacInfo$dacDownCount=sapply(w$dacDown, nrow, USE.NAMES=F)
+      message("Number of significantly downregulated considering all peaks:")
+      print(w$dacInfo[,"dacDownCount",drop=F])
+      w$dacInfo$dacDownCountCoverageFrac=coverageCalc(w$dacDown)
+    }
+    
+    #upregulated
+    w$dacUp=sapply(w$dac,function(x)x[x$logFC>0 & x$adj.P.Val<pAdjustVal,],simplify=F)
+    if(keepOnlyUpPeaks) w$dac=NULL
+    w$dacUpPlots=makeTopTablePlots(w$dacUp,myNamer("up"),forceNoPlots=forceNoPlots)
+    w$dacInfo$dacUpCount=sapply(w$dacUp, nrow, USE.NAMES=F)
+    message("Number of significantly upregulated considering all peaks:")
+    print(w$dacInfo[,"dacUpCount",drop=F])
+    w$dacInfo$dacUpCountCoverageFrac=coverageCalc(w$dacUp)
+  }
+  
+  #fit with just considering peaks involving the cells in the comparison if necesary data is available
+  if(!is.null(allInfo) & !is.null(myIndiPeaksGr)){
+    #make granges from exp mat and find overlap with indipeaks
+    consensusGr=makeGRangesFromDataFrame(eBayesFit$genes,keep.extra.columns=T)
+    indiPeakOverlaps=mapply(function(x)consensusGr$PeakID[overlapsAny(consensusGr,x)],myIndiPeaksGr,SIMPLIFY=F) #for some reason this doesn't work ith mcmapply anymore
+    
+    #find the appropriate peaks for up/down regulated
+    relevantIndipeakSetsList=mapply(function(x)unique(allInfo$mergingDesigns[allInfo$Brain_region_abbreviation %in% semicolonToVector(w$dacInfo[x,"brain_region_abbreviation_union"])]),rownames(w$dacInfo),SIMPLIFY=F)
+    relevantPeaks=sapply(relevantIndipeakSetsList,function(x)as.character(unique(unname(unlist(indiPeakOverlaps[x])))),simplify=F)
+    w$dacInfo$relevantIndipeakSets=unname(sapply(relevantIndipeakSetsList,paste,collapse=";"))
+    
+    #do DAC analysis in just those peaks
+    w$targetedDac=sapply(rownames(w$dacInfo),function(x)topTable(eBayesFit[relevantPeaks[[x]],], coef=x, sort="p", n=Inf, confint=T),simplify=F) #https://support.bioconductor.org/p/23611/
+    w$targetedDac=trimIrrelevantPeakInfo(w$targetedDac)
+    w$targetedDacPlots=makeTopTablePlots(w$targetedDac,myNamer("targeted_all"),forceNoPlots=forceNoPlots)
+    
+    #targeted downregulated
+    if(includeDacDown){ #symmetric with upregulation except for comment line. Sorry for lazy coding
+      w$targetedDacDown=sapply(w$targetedDac,function(x)x[x$logFC<0 & x$adj.P.Val<pAdjustVal,],simplify=F)
+      #if(keepOnlyDownPeaks) w$targetedDac=NULL
+      w$targetedDacDownPlots=makeTopTablePlots(w$targetedDacDown,myNamer("targeted_down"),forceNoPlots=forceNoPlots)
+      w$dacInfo$targetedDacDownCount=sapply(w$targetedDacDown, nrow, USE.NAMES=F)
+      message("Number of significantly downregulated considering targeted peaks:")
+      print(w$dacInfo[,"targetedDacDownCount",drop=F])
+      w$dacInfo$targetedDacDownCountCoverageFrac=coverageCalc(w$targetedDacDown)
+    }
+    
+    #targeted upregulated
+    w$targetedDacUp=sapply(w$targetedDac,function(x)x[x$logFC>0 & x$adj.P.Val<pAdjustVal,],simplify=F)
+    if(keepOnlyUpPeaks) w$targetedDac=NULL
+    w$targetedDacUpPlots=makeTopTablePlots(w$targetedDacUp,myNamer("targeted_up"),forceNoPlots=forceNoPlots)
+    w$dacInfo$targetedDacUpCount=sapply(w$targetedDacUp, nrow, USE.NAMES=F)
+    message("Number of significantly upregulated considering targeted peaks:")
+    print(w$dacInfo[,"targetedDacUpCount",drop=F])
+    w$dacInfo$targetedDacUpCountCoverageFrac=coverageCalc(w$targetedDacUp)
+    
+    #targeted anova
+    if(!is.null(anovaDf)){
+      #find the relevant peaks for each test set
+      anovaRelevantIndipeakSetsList=mapply(function(x)unique(allInfo$mergingDesigns[allInfo$cell_subtype_abbreviation %in% semicolonToVector(w$anovaInfo[x,"cell_subtype_abbreviation_union"])]),rownames(w$anovaInfo),SIMPLIFY=F)
+      anovaRelevantPeaks=sapply(anovaRelevantIndipeakSetsList,function(x)as.character(unique(unname(unlist(indiPeakOverlaps[x])))),simplify=F)
+      w$anovaInfo$relevantIndipeakSets=unname(sapply(anovaRelevantIndipeakSetsList,paste,collapse=";"))
+      
+      #do testing in just those sets
+      w$targetedAnovaDacAll=sapply(rownames(w$anovaInfo),function(x)topTable(eBayesFit[rownames(eBayesFit) %in% anovaRelevantPeaks[[x]],], coef=semicolonToVector(w$anovaInfo[x,"selectedContrastsElementNames"]), sort="F", n=Inf, confint=T),simplify=F)
+      w$targetedAnovaDacAll=trimIrrelevantPeakInfo(w$targetedAnovaDacAll)
+      w$targetedAnovaDacSignificant=sapply(w$targetedAnovaDacAll,function(x)x[x$adj.P.Val<pAdjustVal,],simplify=F)
+      if(!keepAnovaAll) w$targetedAnovaDacAll=NULL
+      w$anovaInfo$targetedAnovaCount=sapply(w$targetedAnovaDacSignificant, nrow, USE.NAMES=F)
+      message("Number of significant DACs in ANOVA considering all peaks:")
+      if(length(w$anovaInfo$targetedAnovaCount) > 0) { print(w$anovaInfo[,"targetedAnovaCount",drop=F]) }
+      w$anovaInfo$targetedAnovaCoverageFrac=coverageCalc(w$targetedAnovaDacSignificant)
+    }
+    
+  }else{
+    if(is.null(allInfo) & is.null(myIndiPeaksGr)){
+      message("not doing targeted dac as allInfo and myIndiPeaksGr is missing")
+    }else if(is.null(allInfo)){
+      message("not doing targeted dac as allInfo is missing")
+    }else if(is.null(myIndiPeaksGr)){
+      message("not doing targeted dac as myIndiPeaksGr is missing")
+    }
+  }
+  return(w)
+}
+
+
+##################################################################
+##  Residualization keeping trait
+##################################################################
+
+eval_residuals = function(form, form_full, vobj, METADATA, CPU_CORES=5) {
+  f = function(fit) {
+    residuals(fit) + variancePartition::get_prediction(fit, form)
+  }
+  i = match(colnames(vobj), rownames(METADATA))
+  info = METADATA[i,]
+  #resid.lst = fitVarPartModel(vobj, form_full, info, showWarnings=F, fxn = f) #, BPPARAM = SnowParam(CPU_CORES))
+  resid.lst = fitVarPartModel(vobj, form_full, info, showWarnings=F, fxn = f)
+  do.call(rbind, resid.lst)
+}
