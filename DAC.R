@@ -25,6 +25,7 @@ library(variancePartition)
   
   # Load peaks
   peaks = readRDS(file.path(ROOT, "inputs", "atacseq_peaks.RDS"))
+  rownames(peaks) = peaks$PeakID
   
   # Default output dir
   outDir=file.path(ROOT, "outputs")
@@ -65,9 +66,9 @@ library(variancePartition)
 
 {
   # Make edgeR object:
-  expObjAll = DGEList(counts=countMatrixRaw, genes=gtf[match(rownames(countMatrixRaw),rownames(gtf)),])
+  expObjAll = DGEList(counts=countMatrixRaw, genes=peaks[match(rownames(countMatrixRaw),rownames(peaks)),])
   
-  # Keep genes with at least 1 count-per-million reads (cpm) in at least 20% of the samples:
+  # Keep peaks with at least 1 count-per-million reads (cpm) in at least 20% of the samples
   fracSamplesWithMinCPM = rowMeans(cpm(expObjAll) >= 1)
   isNonLowExpr = fracSamplesWithMinCPM >= 0.2
   expObjNonLow = expObjAll[isNonLowExpr, , keep.lib.sizes=F]
@@ -110,7 +111,7 @@ library(variancePartition)
   }
   
   ######
-  ### Calculating which covariates are significantly associated (at FDR<0.20) with at least one PC of gene expression variance that explain at least 1pct of variance
+  ### Calculating which covariates are significantly associated (at FDR<0.20) with at least one PC of peak expression variance that explain at least 1pct of variance
   {
     covariatesForExploration = unname(unlist(covariateInfo[c("isTechnicalNumeric","isTechnicalFactor")]))
     
@@ -159,7 +160,7 @@ library(variancePartition)
 ##### SELECTION OF COVARIATES USING BAYESIAN INFORMATION CRITERION (BIC) APPROACH ######
 
 {
-  # Initial model is "gene expression = Cell_type + Disease + Cell_type:Disease + Sex" ... note that "Cell_type + Disease + Cell_type + Cell_type:Disease" is encoded as Groups variable 
+  # Initial model is "chromatin accessibility = Cell_type + Disease + Cell_type:Disease + Sex" ... note that "Cell_type + Disease + Cell_type + Cell_type:Disease" is encoded as Groups variable 
   baseModel = c("Groups", "Gender_asFactor")
   
   ######

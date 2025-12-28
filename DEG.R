@@ -12,7 +12,7 @@ library(variancePartition)
   
   # Load metadata (+ custom fixes)
   METADATA = file.path(ROOT, "inputs", "qc_all_rna.csv")      # Pre-calculated QC metrics for RNA-seq samples from processing computational pipeline
-  allInfo = read.csv(QC_RNASEQ)
+  allInfo = read.csv(METADATA)
   rownames(allInfo) = allInfo$ID
   allInfo$Dx_asFactor = ordered(allInfo$Dx, levels=c("Control", "SCZ"))
   allInfo$cell_subtype_asFactor = ordered(allInfo$cell_subtype_abbreviation, levels=c("GABA", "GLU", "OLIG", "MGAS"))

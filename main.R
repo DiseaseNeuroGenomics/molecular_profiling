@@ -19,6 +19,7 @@ library(GenomicFeatures)
 library(ChIPseeker)
 library(GenomeInfoDb)
 library(tidyverse)
+library(UpSetR)
 
 ########################################################################################
 ##### CONFIG ###########################################################################
@@ -40,11 +41,19 @@ library(tidyverse)
   RNASEQ_COUNT_MATRIX_ADJ = file.path(ROOT, "inputs", "rnaseq_count_matrix_adj.RDS")     # Covariate-adjusted read count matrix for RNA-seq data
   RNASEQ_COUNT_MATRIX_RESIDUALIZED_CELLTYPE_KEPT = file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
   RNASEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT = file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_Dx_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
+  TRANSCRIPT_ANALYSIS_KOZLENKOV = file.path(ROOT, "inputs", "transcript_analysis_kozlenkov_2023.Rdata")  # Transcript-level analysis of mature oligodendrocytes and OPCs from adults and infants
   
   DAC_ANALYSIS = file.path(ROOT, "inputs", "DAC_Analysis.Rdata")  # Pre-calculated results for analysis of differential chromatin accessibility
   DEG_ANALYSIS = file.path(ROOT, "inputs", "DEG_Analysis.Rdata")  # Pre-calculated results for analysis of differential gene expression 
   DET_ANALYSIS = file.path(ROOT, "inputs", "DET_Analysis.Rdata")  # Pre-calculated results for analysis of differential transcript expression 
   REMACOR_ANALYSIS = file.path(ROOT, "inputs", "REMACOR_ANALYSIS.xlsx")
+  
+  ABC = file.path(ROOT, "inputs", "abc.RData")                    # Load Enhancer-Promoter interactions detected by ABC method
+  UBIQUITOUSLY_EXPRESSED_GENES = file.path(ROOT, "inputs", "UbiquitouslyExpressedGenesHG19_EnsemblIDs.txt")
+  GSEA_DEG_RESULTS = file.path(ROOT, "inputs", "gsea_deg.csv")    # Precalculated GSEA on DEG
+  GSEA_DET_RESULTS = file.path(ROOT, "inputs", "gsea_det.csv")    # Precalculated GSEA on DET
+  COLOCALIZED_EQTL_SCZ_GWAS = file.path(ROOT, "inputs", "colocalized_eqtl_scz_gwas.xlsx")  # Cell-specific eQTLs colocalized with SCZ GWAS
+  EQTL = file.path(ROOT, "inputs", "eqtl.xlsx")                   # Cell-specific eQTLs
   
   DEG_ANALYSIS_PSYCHAD_c07x = file.path(ROOT, "inputs", "DEG_Analysis_PsychAD_c07x.Rdata")  # Pre-calculated results for differential SCZ case-control analysis from PsychAD paper (Lee et atl 2025); contrast c07x
   
@@ -58,6 +67,8 @@ library(tidyverse)
   ENSEMBL_INFO = file.path(ROOT, "inputs", "muchEnsemblInfo_hg38.tsv.gz")    # Ensembl (canonical genes, not transcripts)
   GENCODE = file.path(ROOT, "inputs", "gencode.v30.annotation.gtf.gz")       # GENCODE (version 30)
   TXDB = file.path(ROOT, "inputs", "TxDb.Hsapiens.BioMart.ENSEMBLMARTENSEMBL.GRCh38.p12.sqlite")  # TxDB (from Biomart)
+  
+  CELL_TYPES = c("GABA", "GLU", "OLIG", "MGAS")
   
   npgList = list("NEURON"="#B2182B", "GLIA"="#2166AC",             # (a) ATAC-seq cell type
                  "green"="#67A61A", "yellow"="#E4AB00", "pink"="#E4288A", "gray"="727272",
@@ -1199,158 +1210,22 @@ library(tidyverse)
 {
   # Fig. 1b: Proportion of known and novel OCRs. Novel OCRs are calculated based on comparison with established atlases of chromatin accessibility
   {
+    # Load peaks from other studies and merge them together to one GenomicRanges object
     peaksets_other_studies = readRDS(file.path(ROOT, "inputs", "peaksets_other_studies.RDS"))
-    
     allKnownHg38 = Reduce(GenomicRanges::union, as.list(peaksets_other_studies))
-    allKnownHg38
     
-    ourPeaks = makeGRangesFromDataFrame(qcPeakAnno)
-    #ourPeaks = makeGRangesFromDataFrame(qcPeakAnno[qcPeakAnno$PeakID %in% rownames(atacseq_countMatrixRaw),])
-    peakSetsKnown = subsetByOverlaps(ourPeaks, allKnownHg38)
-    peakSetsKnown
-    length(peakSetsKnown@seqnames)
+    # Define known peaks (our peaks that are NOT in previous peaksets) and novel peaks (the opposite of known)
+    knownPeaks = subsetByOverlaps(makeGRangesFromDataFrame(qcPeakAnno[qcPeakAnno$PeakID %in% rownames(atacseq_countMatrixRaw),]), allKnownHg38)
+    novelPeaks = subsetByOverlaps(makeGRangesFromDataFrame(qcPeakAnno[qcPeakAnno$PeakID %in% rownames(atacseq_countMatrixRaw),]), allKnownHg38, invert = TRUE)
     
+    df_pie = data.frame(category = c("Known", "Novel"), n = c( length(knownPeaks), length(novelPeaks))) %>%
+      mutate(frac  = n / sum(n), label = sprintf("%.0f%%", 100 * frac))
     
-    knownPeaks <- subsetByOverlaps(ourPeaks, allKnownHg38)
-    
-    # Novel (non-overlapping) peaks
-    novelPeaks <- subsetByOverlaps(ourPeaks, allKnownHg38, invert = TRUE)
-    
-    # Counts
-    n_total  <- length(ourPeaks)
-    n_known  <- length(knownPeaks)
-    n_novel  <- length(novelPeaks)
-    n_novel/n_known
-    c(total = n_total, known = n_known, novel = n_novel)
-    
-    
-    
-    
-    
-    #peakNovelty
-    z=table(overlapsAny(reduce(Reduce(c,peakSetsAll)),allKnownHg38))
-    z=c(Known=z[["TRUE"]],Novel=z[["FALSE"]])
-    names(z)=paste0(names(z),"\n(",signif(z/sum(z)*100,3),"%)")
-    pdf(paste0(outDir,"/peakNovelty.pdf"),width=3.8,height=3.8);  pie(z,names(z),main="Peak Novelty",border=0,col=c("#A6761D","#bbbbbb"),clockwise=T);  dev.off()
-    peakNovelty=z;rm(z)
-    myLog(peakNovelty)
-    countAll = length(peakSetsAll$seqnames)
-    countKnown = length(peakSetsKnown)
-    countNovel = countAll - countKnown
-    myLog(countAll)
-    myLog(countKnown)
-    myLog(countNovel)
-    
-    #expansion of epigenomic open chromatin
-    coverageBrainPrevious=sum(width(allKnownHg38brain))
-    coverageBrainThis=sum(width(  reduce(Reduce(c,peakSetsAll))  ))
-    coverageBrainUnion=sum(width(  reduce(Reduce(c,{z=peakSetsAll;z$allKnownHg38brain=allKnownHg38brain;z}))  ))
-    #expansionOfCoverageFrac=(coverageBrainUnion-coverageBrainThis)/coverageBrainPrevious
-    expansionOfCoverageFrac=1-coverageBrainPrevious/coverageBrainUnion
-    myLog(expansionOfCoverageFrac)
-    
-    peakSetsNovel = list()
-    peakSetsNovel$novelNeuron = peakSetsAll$neuron[peakSetsAll$neuron$PeakID %in% setdiff(peakSetsAll$neuron$PeakID, peakSetsKnown$neuron$PeakID)]
-    peakSetsNovel$novelGlia = peakSetsAll$glia[peakSetsAll$glia$PeakID %in% setdiff(peakSetsAll$glia$PeakID, peakSetsKnown$glia$PeakID)]
-    peakSetsNovel$knownNeuron = peakSetsKnown$neuron
-    peakSetsNovel$knownGlia = peakSetsKnown$glia
-    
-    step4(
-      peakSets=peakSetsNovel, doLdscAnalysis=F, doConsAnalysis=F, doGeneSetAnalysis=F, doOverlapAnalysis=T, doCoverageAnalysis=F, dryRun=T,
-      overlapAnnotations=c("roadmap", "roussoslab"),
-      outDir=file.path(OUTPUT_FOLDER, "novelPeaksStep4"),
-      ldscPadding=c(0,500,1000), checkIfOutDirExists=F, GENOME_VERSION="hg38"
-    )
-    
-    novelPeaksStep4 = new.env(); load(file.path(OUTPUT_FOLDER, "novelPeaksStep4/results/step4results.Rdata"), envir=novelPeaksStep4)
-    
-    peakSetsNovel = list()
-    peakSetsNovel$novelNeuron = peakSetsAll$neuron[peakSetsAll$neuron$PeakID %in% setdiff(peakSetsAll$neuron$PeakID, peakSetsKnown$neuron$PeakID)]
-    peakSetsNovel$novelGlia = peakSetsAll$glia[peakSetsAll$glia$PeakID %in% setdiff(peakSetsAll$glia$PeakID, peakSetsKnown$glia$PeakID)]
-    peakSetsNovel$knownNeuron = peakSetsKnown$neuron
-    peakSetsNovel$knownGlia = peakSetsKnown$glia
-    
-    sum(peakSetsNovel$knownGlia@ranges@width)/3E9
-    
-    myOverlaps = novelPeaksStep4$myOverlaps
-    if(reference == "roussoslab") {
-      dt <- data.table(
-        rbind(myOverlaps[[reference]]$aggOverlap$AdultLateNeuron[which(myOverlaps[[reference]]$aggOverlaps$AdultLateNeuron$peakSets == "knownNeuron"),],
-              myOverlaps[[reference]]$aggOverlap$AdultLateGlia[which(myOverlaps[[reference]]$aggOverlaps$AdultLateGlia$peakSets == "novelNeuron"),],
-              myOverlaps[[reference]]$aggOverlap$AdultLateNeuron[which(myOverlaps[[reference]]$aggOverlaps$AdultLateNeuron$peakSets == "knownGlia"),],
-              myOverlaps[[reference]]$aggOverlap$AdultLateGlia[which(myOverlaps[[reference]]$aggOverlaps$AdultLateGlia$peakSets == "novelGlia"),]
-        ))
-      setkey(dt, "ipsych.3.cats", "peakSets", "MNEMONIC")
-      dt.m <- dt[, list(count = sum(enrichment)), by=list(peakSets,MNEMONIC, ipsych.3.cats)]
-      dt.m <- dt.m[, list(State=MNEMONIC, prop = count/sum(count)), by=list(peakSets, ipsych.3.cats)]
-      dt.m$State = factor(dt.m$State, levels = c("TssA", "TssFlnk", "TssBiv", "EnhA", "ReprPC", "Quies"))
-    } else {
-      dt <- data.table(myOverlaps[[reference]]$aggOverlaps[["core18stateSimple"]])
-      setkey(dt, "ipsych.3.cats", "peakSets", "MNEMONIC")
-      dt = dt[dt$peakSets %in% c("novelNeuron", "novelGlia", "knownNeuron", "knownGlia"),]
-      dt.m <- dt[, list(count = sum(enrichment)), by=list(peakSets,MNEMONIC, ipsych.3.cats)]
-      dt.m <- dt.m[, list(State=MNEMONIC, prop = count/sum(count)), by=list(peakSets, ipsych.3.cats)]
-      dt.m$State = factor(dt.m$State, levels = c("Promoter","Enhancer","Transcription","Poised Promoter", "Repressed Enhancer","Repressed","Heterochromatin", "Repeats","Low"))
-    }
-    
-    setkey(dt, "ipsych.3.cats", "peakSets", "MNEMONIC")
-    
-    dt.m = dt.m[dt.m$ipsych.3.cats %in% "Brain tissue",]
-    dim(dt.m)
-    
-    panel_A = ggplot(data=dt.m, aes(x=peakSets, y=prop, fill=State)) + geom_bar(stat="identity") + scale_y_continuous(labels = scales::percent_format()) +
-      facet_grid(. ~ ipsych.3.cats) + scale_fill_brewer(palette="Spectral") + theme_classic() + theme(axis.text.x = element_text(angle = 90))
-    print(panel_A)
-    mpdf(paste0("chromatin_states_full"), width=7, height=25); print(panel_A); dev.off()
-    
-    ####
-    dt.m$CellType = ifelse(startsWith(dt.m$peakSets, "GLIA"), "Non-neuron", "Neuron")
-    dt.m$Score = ifelse(endsWith(dt.m$peakSets, "lowScore"), "low", "high")
-    dt.m$BrainRegion = ifelse(startsWith(dt.m$peakSets, "GLIA_BM22") | startsWith(dt.m$peakSets, "NEURON_BM22"), "STG", "EC")
-    dt.m$StateOverall[dt.m$State %in% c("Promoter", "Enhancer", "Transcription")] = "active"
-    dt.m$StateOverall[dt.m$State %in% c("Poised Promoter", "Repressed Enhancer", "Repeats", "Low")] = "bivalent" # "Repeats", "Low" is sort of "fourth" category from certain perspective
-    dt.m$StateOverall[dt.m$State %in% c("Repressed", "Heterochromatin")] = "repressed"
-    dt.m$StateOverall = ordered(dt.m$StateOverall, levels=c("active", "bivalent", "repressed"))
-    dt.m$Score = ordered(dt.m$Score, levels=c("high", "low"))
-    dt.m$StateOverall[dt.m$State %in% c("Promoter", "Enhancer", "Transcription", "Poised Promoter", "Repressed Enhancer")] = "XXX"
-    
-    dt.x = dt.m
-    #dt.x = with(dt.m, aggregate(list(prop), list(State = tolower(StateOverall), CellType, BrainRegion, Score), sum))
-    #colnames(dt.x) = c("State", "CellType", "BrainRegion", "Score", "Proportion")
-    #dt.x$Combo = ordered(paste0(dt.x$CellType, " ", dt.x$BrainRegion), levels=c("Neuron STG", "Neuron EC", "Non-neuron STG", "Non-neuron EC"))
-    
-    # Figure unused: (active / bivalent / repressed) categories only
-    chromatin_states = ggplot(data=dt.x, aes(State, Proportion, fill=Score)) + geom_bar(stat="identity", position=position_dodge()) + 
-      scale_fill_manual(values = c("#66A61E", "#E6AB02")) +
-      theme_classic() + xlab("Chromatin state") + ylab("Proportion") + theme(panel.spacing=unit(1, "lines")) +
-      theme(strip.background=element_rect(fill="#eeeeee",color="#eeeeee")) + theme(strip.text=element_text(face="bold")) + 
-      scale_y_continuous(expand = c(0, 0)) + scale_x_discrete(expand = c(0, 0.5))
-    chromatin_states
-    mpdf("chromatin_states", width=11, height=5); print(chromatin_states); dev.off()
-    
-    dt1 = dt.m[dt.m$peakSets %in% c("knownGlia", "novelGlia"),]
-    dt1 = data.frame(dt1[dt1$peakSets=="novelGlia",c("ipsych.3.cats","State")], prop=dt1[dt1$peakSets=="novelGlia","prop"]/dt1[dt1$peakSets=="knownGlia","prop"])
-    dt1$celltype = "glia"
-    ggplot(data=dt1, aes(x=State, y=log2(prop), fill=ipsych.3.cats)) + geom_bar(stat="identity", position=position_dodge()) + scale_fill_brewer(palette="Dark2") + theme_classic() + ylab("Log2(ratio)")
-    
-    dt2 = dt.m[dt.m$peakSets %in% c("knownNeuron", "novelNeuron"),]
-    dt2 = data.frame(dt2[dt2$peakSets=="novelNeuron",c("ipsych.3.cats","State")], prop=dt2[dt2$peakSets=="novelNeuron","prop"]/dt2[dt2$peakSets=="knownNeuron","prop"])
-    dt2$celltype = "neuron"
-    ggplot(data=dt2, aes(x=State, y=log2(prop), fill=ipsych.3.cats)) + geom_bar(stat="identity", position=position_dodge()) + scale_fill_brewer(palette="Dark2") + theme_classic() + ylab("Log2(ratio)")
-    
-    dtx = rbind(dt2[,c("ipsych.3.cats", "State", "prop", "celltype")], dt1[,c("ipsych.3.cats", "State", "prop", "celltype")])
-    dtx$celltype = ordered(dtx$celltype, levels=c("neuron", "glia"))
-    dim(dtx)
-    
-    peaksNovelVsKnown = ggplot(data=dtx, aes(State, log2(prop), fill=celltype)) + geom_bar(stat="identity", position=position_dodge()) + 
-      scale_fill_manual(values=c(npgList[["NEURON"]], npgList[["GLIA"]])) +
-      theme_classic() + xlab("Chromatin state") + ylab("Log2(ratio) ABC highScore vs lowScore") + theme(panel.spacing=unit(1, "lines")) +
-      theme(strip.background=element_rect(fill="#eeeeee",color="#eeeeee")) + theme(strip.text=element_text(face="bold"), axis.text.x = element_text(colour = "black", vjust=0.3, angle=45)) + 
-      scale_y_continuous(expand = c(0, 0)) + scale_x_discrete(expand = c(0, 0.5)) + ylim(c(-5,+5))
-    mpdf(paste0("novelPeaks_vs_knownPeaks_chromHmm"), width=7, height=5); print(peaksNovelVsKnown); dev.off()
-    
-    sum(peakSetsNovel$knownGlia@ranges@width)/3E9
-    
+    piePlot_knownNovel = ggplot(df_pie, aes(x = "", y = n, fill = category)) + geom_bar(stat = "identity", width = 1, color = "black") + coord_polar(theta = "y") +
+      geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+      theme_void(base_size = 14) + theme(legend.position = "none")
+
+    mpdf("Fig_1_b", outDir = file.path(ROOT, "outputs"), width = 4, height = 4); print(piePlot_knownNovel); dev.off()
   }
   
   # Fig. 1c: Proportion of OCRs corresponding to different genomic annotations
@@ -1593,7 +1468,7 @@ library(tidyverse)
   #####
   # Fig. 2d: Sunburst plot showing localization of differentially accessible OCRs in GABAergic neurons using the SynGO ontology resource
   {
-    # NOTE: This panel was created online at https://www.syngoportal.org using genes associated with differentially accessible GABAergic OCRs
+    # NOTE: This panel was created online at https://www.syngoportal.org using genes associated with differentially accessible GABAergic OCRs (see Table S5)
   }
   
   #####
@@ -1654,17 +1529,84 @@ library(tidyverse)
 {
   # Fig. 3a: Number of E-P interactions per cell type 
   {
-    # TODO
+    # Load pre-calculated ABC results
+    abcEnv = new.env(); load(ABC, envir=abcEnv)
+    sapply(abcEnv$abcResults_cell, nrow)
+    
+    # Load expressed genes genes from RNA-seq analysis & downloaded list of ubiquitously expressed genes
+    expressedGenes = rownames(rnaseq_countMatrixRaw)
+    ubiquitouslyExpressedGenes = read.csv(UBIQUITOUSLY_EXPRESSED_GENES, header=F)[,1]
+    
+    epByCelltypeDf = tibble::tibble(CellType = names(abcEnv$abcResults_cell), Freq = unname(sapply(abcEnv$abcResults_cell, nrow)))
+    
+    epByCelltypePlot = ggplot(epByCelltypeDf, aes(CellType, Freq, fill = CellType)) + geom_col() + scale_fill_manual(values = npgList[c("GABA","GLU","MGAS","OLIG")]) +
+      theme_classic() + labs(y = "Number of E-P links", x = NULL) + scale_y_continuous(expand = c(0,0))
+    
+    mpdf("Fig_3_a", outDir=file.path(ROOT, "outputs"), width=4, height=3); print(epByCelltypePlot); dev.off();
   }
   
   # Fig. 3b: Number of E-P interactions per gene in each cell type
   {
-    # TODO
+    abcResults_cell = abcEnv$abcResults_cell
+    
+    DE_PER_GENE = list()
+    for(cat in names(abcResults_cell)) {
+      df = data.frame(table(table(abcResults_cell[[cat]]$TargetGene)))
+      df$Var1 = as.numeric(df$Var1)
+      zeroDf = t(data.frame(c(0, length(setdiff(setdiff(expressedGenes, ubiquitouslyExpressedGenes), abcResults_cell[[cat]]$TargetGene)))))
+      colnames(zeroDf) = colnames(df)
+      df = rbind.data.frame(zeroDf, df)
+      
+      df2 = do.call("rbind.data.frame", list(
+        c("0", sum(df[(df$Var1 == 0),"Freq"])),
+        c("1", sum(df[(df$Var1 == 1),"Freq"])),
+        c("2", sum(df[(df$Var1 == 2),"Freq"])),
+        c("3", sum(df[(df$Var1 == 3),"Freq"])),
+        c("4", sum(df[(df$Var1 == 4),"Freq"])),
+        c("5", sum(df[(df$Var1 == 5),"Freq"])),
+        c("6", sum(df[(df$Var1 == 6),"Freq"])),
+        c("7", sum(df[(df$Var1 == 7),"Freq"])),
+        c("8", sum(df[(df$Var1 == 8),"Freq"])),
+        c("9", sum(df[(df$Var1 == 9),"Freq"])),
+        c("≥10", sum(df[(df$Var1 > 10),"Freq"]))))
+      colnames(df2) = c("Var1", "Freq")
+      df2$Var1 = ordered(df2$Var1, levels=c(0:10, ">=10"))
+      
+      df2$CellType = cat
+      DE_PER_GENE[[cat]] = df2
+    }
+    df = data.frame(do.call("rbind", DE_PER_GENE))
+    df$Freq = as.numeric(df$Freq)
+    
+    enhancersPerGenePlot = ggplot(df, aes(Var1, Freq, fill = CellType)) +
+      geom_col(position = position_dodge()) + scale_fill_manual(values = npgList[c("GABA","GLU","MGAS","OLIG")]) +
+      theme_classic() + labs(x = "Number of enhancers per gene", y = "Number of genes") + scale_y_continuous(expand = c(0,0))
+    enhancersPerGenePlot
+    
+    mpdf("Fig_3_b", outDir=file.path(ROOT, "outputs"), width=5, height=3); print(enhancersPerGenePlot); dev.off();
   }
   
   # Fig. 3c: Number of genes linked per E-P interaction in each cell type
   {
-    # TODO
+    genesPerEnhancerDf = bind_rows(
+      lapply(names(abcEnv$abcResults_cell), function(ct) {
+        abcEnv$abcResults_cell[[ct]] %>%
+          count(PeakID, name = "n_genes") %>%
+          mutate(
+            n_genes_bin = ifelse(n_genes >= 10, ">=10", as.character(n_genes))
+          ) %>%
+          count(n_genes_bin, name = "Freq") %>%
+          mutate(CellType = ct)
+      })
+    )
+    
+    genesPerEnhancerDf$n_genes_bin = factor(genesPerEnhancerDf$n_genes_bin, levels = c(as.character(1:9), "≥10"))
+    
+    genesPerEnhancerPlot = ggplot(genesPerEnhancerDf, aes(n_genes_bin, Freq, fill = CellType)) +
+      geom_col(position = position_dodge()) + scale_fill_manual(values = npgList[c("GABA","GLU","MGAS","OLIG")]) +
+      theme_classic() + labs(x = "Number of genes per enhancer", y = "Number of enhancers") + scale_y_continuous(expand = c(0,0))
+    
+    mpdf("Fig_3_c", outDir=file.path(ROOT, "outputs"), width=5, height=3); print(genesPerEnhancerPlot); dev.off();
   }
   
   # Fig. 3d: An overview of the strategy used to link genetic signals from the SCZ GWAS
@@ -1756,20 +1698,104 @@ library(tidyverse)
   
   # Fig. 4b: Overlap of DEGs between cell types
   {
-    # TODO
+    deg_sets = list(
+      GABA = rownames(rnaMerged[["GABAergic neurons"]]),
+      GLU  = rownames(rnaMerged[["Glutamatergic neurons"]]),
+      OLIG = rownames(rnaMerged[["Oligodendrocytes"]]),
+      MGAS = rownames(rnaMerged[["Microglia+Astrocytes"]])
+    )
+    
+    deg_df = UpSetR::fromList(deg_sets)
+    
+    mpdf("Fig_4_b", outDir=file.path(ROOT, "outputs"), width=10, heigh=7); 
+    print(upset(
+      fromList(deg_sets),
+      sets = c("GABA","GLU","MGAS","OLIG"),
+      order.by = "freq",
+      empty.intersections = "off",
+      sets.bar.color = c(
+        "#4DAF4A",  # GABA
+        "#E69F00",  # GLU
+        "#7570B3",  # MGAS
+        "#E7298A"   # OLIG
+      ),
+      main.bar.color = "grey30",
+      text.scale = c(1.6, 1.4, 1.4, 1.2, 1.2, 1.4)
+    ))
+    dev.off()
   }
   
   # Fig. 4c:  Examples of SCZ-associated changes in gene expression of OPALIN
   {
-    # TODO
+    # NOTE: This panel is a manually created schematic produced in graphics software (using SVG-exported genome tracks from IGV); no analysis code is associated with this figure.
   }
   
   # Fig. 4d: Gene set enrichment analysis using MSigDB with top 3 pathways per cell type.
   {
-    # TODO
+    # Load precalculated DEG results
+    gseaDegDf = read.csv(GSEA_DEG_RESULTS)
+    gseaDegDf = gseaDegDf %>% filter(Set %in% c("GABA", "GLU", "OLIG", "MGAS"))  # keep relevant cell types only
+    
+    # Define pathway universe: union of the top 3 most significant pathways (by nominal P) from each cell type
+    top_pathways = gseaDegDf %>% dplyr::group_by(Set) %>% dplyr::arrange(pval) %>% dplyr::slice_head(n = 3) %>%dplyr::ungroup() %>%
+      dplyr::distinct(name_full) %>% dplyr::pull(name_full)
+    
+    # Build plotting table:(i) keep only pathways in the union defined above, (ii) re-expand to all (cell type x pathway) combinations, (iii) compute −log10(P) and significance labels
+    df_plot = df %>%
+      dplyr::filter(name_full %in% top_pathways) %>%
+      dplyr::select(Set, name_full, pval, BH_AdjP) %>%
+      dplyr::right_join(
+        tidyr::expand_grid(
+          Set       = cell_types,
+          name_full = top_pathways
+        ),
+        by = c("Set", "name_full")
+      ) %>%
+      dplyr::mutate(
+        LogP = -log10(pval),
+        sig  = dplyr::case_when(
+          is.na(pval)    ~ "",
+          BH_AdjP < 0.05 ~ "#",   # FDR-significant
+          pval < 0.05    ~ ".",   # nominally significant
+          TRUE           ~ ""
+        ),
+        Set = factor(Set, levels = rev(cell_types))
+      )
+    
+    # Order pathways by average significance across cell types
+    pathway_order = df_plot %>%
+      dplyr::group_by(name_full) %>%
+      dplyr::summarise(mean_LogP = mean(LogP, na.rm = TRUE)) %>%
+      dplyr::arrange(dplyr::desc(mean_LogP)) %>%
+      dplyr::pull(name_full)
+    
+    df_plot = df_plot %>%
+      dplyr::mutate(
+        name_full = factor(name_full, levels = pathway_order)
+      )
+    
+    # Heatmap plot
+    myPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Greens"), space = "Lab")
+    df_plot$Set = factor(df_plot$Set, levels = c("GABA", "GLU", "OLIG", "MGAS"))
+    
+    gseaDegPlot <- ggplot(df_plot, aes(x = name_full, y = Set, fill = LogP)) +
+      geom_tile(color = "white", linewidth = 0.4) +
+      geom_text(aes(label = sig), size = 5, fontface = "bold") +
+      scale_fill_gradientn(
+        colours = myPalette(100),
+        name    = expression(-log[10](P))
+      ) +
+      labs(x = NULL, y = NULL) +
+      theme_minimal(base_size = 12) +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid  = element_blank()
+      )
+    
+    mpdf("Fig_4_d", outDir=file.path(ROOT, "outputs"), width=10, heigh=7); print(gseaDegPlot); dev.off()
   }
 }
-  
+
 ####################################################################################################
 ##### FIG. 5 :: SCZ-ASSOCIATED CHANGES IN TRANSCRIPT EXPRESSION ####################################
 
@@ -1778,7 +1804,7 @@ library(tidyverse)
   {
     rnaseqDET = new.env(); load(DET_ANALYSIS, envir=rnaseqDET)
     sheet_names = excel_sheets(REMACOR_ANALYSIS)
-    list_of_data_frames = lapply(sheet_names, read_excel, path="~/drive_lab/ROUSSOS_LAB_SHARED/Manuscripts/Molecular_Profiling/Tables/Table_S8.xlsx")
+    list_of_data_frames = lapply(sheet_names, read_excel, path=REMACOR_ANALYSIS)
     table_s7 = lapply(list_of_data_frames, as.data.frame)
     names(table_s7) = sheet_names
     table_s7$Combined = do.call("rbind.data.frame", table_s7[c("GABA_meta", "GLU_meta", "OLIG_meta", "MGAS_meta")])
@@ -1805,8 +1831,8 @@ library(tidyverse)
     rm(z)
     
     ##########
-    sheet_names = excel_sheets("~/drive_lab/ROUSSOS_LAB_SHARED/Manuscripts/Molecular_Profiling/Tables/Table_S8.xlsx")
-    list_of_data_frames = lapply(sheet_names, read_excel, path="~/drive_lab/ROUSSOS_LAB_SHARED/Manuscripts/Molecular_Profiling/Tables/Table_S8.xlsx")
+    sheet_names = excel_sheets(REMACOR_ANALYSIS)
+    list_of_data_frames = lapply(sheet_names, read_excel, path=REMACOR_ANALYSIS)
     table_s7 = lapply(list_of_data_frames, as.data.frame)
     names(table_s7) = sheet_names
     table_s7$Combined = do.call("rbind.data.frame", table_s7[c("GABA_meta", "GLU_meta", "OLIG_meta", "MGAS_meta")])
@@ -1877,12 +1903,78 @@ library(tidyverse)
     )
     dev.off()
   }
-
+  
+  # Fig. 5b: Gene set enrichment analysis with top 3 pathways per cell type.
+  {
+    # Load precalculated DET results
+    gseaDetDf = read.csv(GSEA_DET_RESULTS)
+    colnames(gseaDetDf) = gsub("p_value", "pval", gsub("term_name", "name_full", gsub("cell_type", "Set", colnames(gseaDetDf))))
+    gseaDetDf = gseaDetDf %>% filter(Set %in% CELL_TYPES)  # keep relevant cell types only
+    gseaDetDf$BH_AdjP = p.adjust(gseaDetDf$pval, method="bonferroni")
+    
+    # Define pathway universe: union of the top 3 most significant pathways (by nominal P) from each cell type
+    top_pathways = gseaDetDf %>% dplyr::group_by(Set) %>% dplyr::arrange(pval) %>% dplyr::slice_head(n = 3) %>%dplyr::ungroup() %>%
+      dplyr::distinct(name_full) %>% dplyr::pull(name_full)
+    
+    # Build plotting table:(i) keep only pathways in the union defined above, (ii) re-expand to all (cell type x pathway) combinations, (iii) compute −log10(P) and significance labels
+    df_plot = gseaDetDf %>%
+      dplyr::filter(name_full %in% top_pathways) %>%
+      dplyr::select(Set, name_full, pval, BH_AdjP) %>%
+      dplyr::right_join(
+        tidyr::expand_grid(
+          Set       = CELL_TYPES,
+          name_full = top_pathways
+        ),
+        by = c("Set", "name_full")
+      ) %>%
+      dplyr::mutate(
+        LogP = -log10(pval),
+        sig  = dplyr::case_when(
+          is.na(pval)    ~ "",
+          BH_AdjP < 0.05 ~ "#",   # FDR-significant
+          pval < 0.05    ~ ".",   # nominally significant
+          TRUE           ~ ""
+        ),
+        Set = factor(Set, levels = rev(CELL_TYPES))
+      )
+    
+    # Order pathways by average significance across cell types
+    pathway_order = df_plot %>%
+      dplyr::group_by(name_full) %>%
+      dplyr::summarise(mean_LogP = mean(LogP, na.rm = TRUE)) %>%
+      dplyr::arrange(dplyr::desc(mean_LogP)) %>%
+      dplyr::pull(name_full)
+    
+    # Heatmap plot
+    myPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Greens"), space = "Lab")
+    df_plot$Set = factor(df_plot$Set, levels = CELL_TYPES)
+    
+    gseaDetPlot <- ggplot(df_plot, aes(x = name_full, y = Set, fill = LogP)) +
+      geom_tile(color = "white", linewidth = 0.4) +
+      geom_text(aes(label = sig), size = 5, fontface = "bold") +
+      scale_fill_gradientn(
+        colours = myPalette(100),
+        name    = expression(-log[10](P))
+      ) +
+      labs(x = NULL, y = NULL) +
+      theme_minimal(base_size = 12) +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid  = element_blank()
+      )
+    
+    mpdf("Fig_5_b", outDir=file.path(ROOT, "outputs"), width=10, heigh=7); print(gseaDetPlot); dev.off()
+  }
+  
+  # Fig. 5c,e: Fold changes in the expression levels of CACNA1C and TRIM2 in our data
+  {
+    # TODO Rebecca
+  }
+  
   # Fig. 5d,f: Comparison with Kozlenkov et al 2023
   {
     # Load pre-processed data from Kozlenkov et al. 2023
-    TRANSCRIPT_ANALYSIS = file.path(ROOT, "inputs", "transcript_analysis.Rdata")
-    rnaseqTranscriptEnv = new.env(); load(TRANSCRIPT_ANALYSIS, envir=rnaseqTranscriptEnv)
+    rnaseqTranscriptEnv = new.env(); load(TRANSCRIPT_ANALYSIS_KOZLENKOV, envir=rnaseqTranscriptEnv)
     
     # Get normalized count matrix (effect of technical covariates was regressed out)
     mx = rnaseqTranscriptEnv$residualized_DxBrainRegion_EffectKept
@@ -1932,5 +2024,98 @@ library(tidyverse)
       theme_classic() + theme(axis.text.x = element_text(angle = 90))
     trim2_plot
     mpdf("Fig_5_f", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(trim2_plot); dev.off();
+  }
+}
+
+
+####################################################################################################
+##### FIG. 5 :: CELL-TYPE-SPECIFIC EQTL AND GWAS-EQTL COLOCALIZATION ###############################
+
+{
+  # Fig. 6a:  Workflow of cell type imputation relying on the construction of reference matrix from marker genes from this study, per-sample cell type estimation (dtangle) and imputation algorithm (bMIND).
+  {
+    # NOTE: This panel is a manually created schematic produced in graphics software; no analysis code is associated with this figure.
+  }
+  
+  # Fig. 6b: Bar chart showing the numbers of lead eQTLs per cell type using the bulk data, data from FANS samples and imputed data respectively
+  {
+    # Read eQTLs
+    sheet_names = setdiff(excel_sheets(EQTL), "Description")
+    eqtlDf = lapply(sheet_names, read_excel, path=EQTL)
+    names(eqtlDf) = paste0(sheet_names, " imputed")
+    
+    # Customize df for plotting
+    eqtlDf <- bind_rows(lapply(names(eqtlDf), function(ct) {
+      eqtlDf[[ct]] %>%
+        summarise(n = n()) %>%
+        mutate(cell_type = ct)
+    })
+    )
+    
+    # Final barplot
+    eqtlPlot = ggplot(eqtlDf, aes(x = cell_type, y = n, fill = cell_type)) + geom_col(width = 0.7) +
+      coord_flip() + labs(x = NULL, y = "Number of detected eQTLs") +
+      theme_classic(base_size = 12) + theme(legend.position = "none", axis.text.y = element_text(size = 11))
+    
+    mpdf("Fig_6_b", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(eqtlPlot); dev.off();
+  }
+  
+  # Fig. 6c: Bar chart showing the numbers of colocalized eQTLs using the bulk data, FANS sample data and imputed data respectively. 
+  {
+    # Read colocalized cell-type-specific eQTL with SCZ GWAS
+    sheet_names = setdiff(excel_sheets(EQTL), "Description")
+    colocDf = lapply(sheet_names, read_excel, path=COLOCALIZED_EQTL_SCZ_GWAS)
+    names(colocDf) = paste0(sheet_names, " imputed")
+    
+    # Customize df for plotting
+    eqtlColocDf <- bind_rows(lapply(names(colocDf), function(ct) {
+        colocDf[[ct]] %>%
+          summarise(n = n()) %>%
+          mutate(cell_type = ct)
+      })
+    )
+    
+    # Final barplot
+    eqtlColocPlot = ggplot(eqtlColocDf, aes(x = cell_type, y = n, fill = cell_type)) + geom_col(width = 0.7) +
+      coord_flip() + labs(x = NULL, y = "Number of colocalized eQTLs") +
+      theme_classic(base_size = 12) + theme(legend.position = "none", axis.text.y = element_text(size = 11))
+    
+    mpdf("Fig_6_c", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(eqtlColocPlot); dev.off();
+  }
+  
+  # Fig. 6d: Upset plot showing the number of eQTLs colocalized with SCZ GWAS per cell type. 
+  {
+    names(colocDf) = gsub(" imputed", "", names(colocDf))
+    coloc_sets = lapply(colocDf, function(df) {
+      unique(df$GWAS_snp)
+    })
+    
+    # ensure consistent naming
+    coloc_sets = coloc_sets[c("GLU","GABA","MGAS","OLIG")]
+    
+    upset_input = fromList(coloc_sets)
+    
+    set_colors <- c(
+      GLU  = npgList["GLU"],
+      GABA = npgList["GABA"],
+      MGAS = npgList["MGAS"],
+      OLIG = npgList["OLIG"]
+    )
+    
+    mpdf("Fig_6_d", outDir = file.path(ROOT, "outputs"), width = 8, height = 6)
+    upset(
+      upset_input,
+      sets = c("GLU","GABA","MGAS","OLIG"),
+      order.by = "degree",
+      decreasing = TRUE,
+      empty.intersections = "off",
+      sets.bar.color = set_colors,
+      main.bar.color = "grey30",
+      matrix.color = "black",
+      point.size = 3,
+      line.size = 0.8,
+      text.scale = c(1.4, 1.2, 1.2, 1.0, 1.2, 1.0)
+    )
+    dev.off()
   }
 }
