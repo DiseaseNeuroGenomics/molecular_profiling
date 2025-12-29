@@ -1938,7 +1938,6 @@ library(UpSetR)
   }
 }
 
-
 ####################################################################################################
 ##### FIG. 6 :: CELL-TYPE-SPECIFIC EQTL AND GWAS-EQTL COLOCALIZATION ###############################
 
@@ -2014,7 +2013,7 @@ library(UpSetR)
     )
     
     mpdf("Fig_6_d", outDir = file.path(ROOT, "outputs"), width = 8, height = 6)
-    upset(
+    print(upset(
       upset_input,
       sets = c("GLU","GABA","MGAS","OLIG"),
       order.by = "degree",
@@ -2026,7 +2025,7 @@ library(UpSetR)
       point.size = 3,
       line.size = 0.8,
       text.scale = c(1.4, 1.2, 1.2, 1.0, 1.2, 1.0)
-    )
+    ))
     dev.off()
   }
 }
