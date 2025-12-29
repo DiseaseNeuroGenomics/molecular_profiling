@@ -16,70 +16,72 @@ library(patchwork)
 ################################################################################
 ##### DATA PREPARATION #########################################################
 
-# Load qPCR raw input data
-df = read.csv(file.path(ROOT, "inputs", "qPCR_raw_input.csv"))  
-df$combo = paste0(df$Donor_ID, "_", df$Transcript_ID)           # Helper column (unique combination of Sample/Donor - Transcript/Probe)
-
-# Load differential analysis results from RNA-seq transcript-level analysis for those 8 qPCR-validates transcripts
-det_orig = read.csv(file.path(ROOT, "inputs", "qPCR_DET.csv")) 
-det_orig$SE =  det_orig$logFC / det_orig$t  # Calculate standard error
-det_orig$method = "RNA-seq"                 # Add method name for compatibility (and discrimination from qPCR in plots)
-
-# Load differential analysis results from RNA-seq transcript-level analysis for those 8 qPCR-validates transcripts
-exprMx_orig = read.csv(file.path(ROOT, "inputs", "qPCR_exprMx.csv"))
-rownames(exprMx_orig) = exprMx_orig[,1]
-exprMx_orig = exprMx_orig[,2:ncol(exprMx_orig)]
-
-# Shrink input qPCR measurement - keep only one value (median CT) for each triplicate
-df_summary <- df %>%
-  group_by(combo) %>%
-  summarise(
-    mean_CT = median(CT, na.rm = TRUE),
-    sd_CT = sd(CT, na.rm = TRUE),
-    Donor_ID = first(Donor_ID),
-    Transcript_ID = first(Transcript_ID),
-    Pair = first(Pair),
-    Condition = first(Condition),
-    Sex = first(Sex),
-    RIN = first(RIN),
-    pH = first(pH),
-    Age.of.death = first(Age.of.death),
-    .groups = "drop"
-  )
-
-# Separate qPCR measurements for targets and reference 
-targets = data.frame(df_summary[(df_summary$Transcript_ID != "GAPDH"),])
-gapdh = data.frame(df_summary[(df_summary$Transcript_ID == "GAPDH"),])
-
-# ΔCT calculation
-targets$del_ct = sapply(1:nrow(targets), function(i) {
-  val = (targets[i,"mean_CT"] - gapdh[which(gapdh$Donor_ID == targets[i,"Donor_ID"]),"mean_CT"])
-  ifelse(length(val) == 0, NA, val)
-})
-targets = targets[!is.na(targets$del_ct),]
-
-# LogFC calculation
-fc_results <- targets %>%
-  group_by(Transcript_ID, Condition) %>%
-  summarise(
-    mean_deltaCT = mean(del_ct, na.rm = TRUE),
-    se_deltaCT = sd(del_ct, na.rm = TRUE) / sqrt(n()),
-    .groups = "drop"
-  ) %>%
-  pivot_wider(
-    names_from = Condition,
-    values_from = c(mean_deltaCT, se_deltaCT),
-    names_sep = "_"
-  ) %>%
-  mutate(
-    logFC = mean_deltaCT_Control - mean_deltaCT_SCZ,
-    fold_change = 2^(logFC),
-    SE = sqrt(se_deltaCT_Control^2 + se_deltaCT_SCZ^2)
-  )
-fc_results$method = "qPCR"
-
-# Merge qPCR and DET data
-df = (rbind.data.frame(fc_results[,c("Transcript_ID", "logFC", "method", "SE")], det_orig[,c("Transcript_ID", "logFC", "method", "SE")]))
+{
+  # Load qPCR raw input data
+  df = read.csv(file.path(ROOT, "inputs", "qPCR_raw_input.csv"))  
+  df$combo = paste0(df$Donor_ID, "_", df$Transcript_ID)           # Helper column (unique combination of Sample/Donor - Transcript/Probe)
+  
+  # Load differential analysis results from RNA-seq transcript-level analysis for those 8 qPCR-validates transcripts
+  det_orig = read.csv(file.path(ROOT, "inputs", "qPCR_DET.csv")) 
+  det_orig$SE =  det_orig$logFC / det_orig$t  # Calculate standard error
+  det_orig$method = "RNA-seq"                 # Add method name for compatibility (and discrimination from qPCR in plots)
+  
+  # Load differential analysis results from RNA-seq transcript-level analysis for those 8 qPCR-validates transcripts
+  exprMx_orig = read.csv(file.path(ROOT, "inputs", "qPCR_exprMx.csv"))
+  rownames(exprMx_orig) = exprMx_orig[,1]
+  exprMx_orig = exprMx_orig[,2:ncol(exprMx_orig)]
+  
+  # Shrink input qPCR measurement - keep only one value (median CT) for each triplicate
+  df_summary <- df %>%
+    group_by(combo) %>%
+    summarise(
+      mean_CT = median(CT, na.rm = TRUE),
+      sd_CT = sd(CT, na.rm = TRUE),
+      Donor_ID = first(Donor_ID),
+      Transcript_ID = first(Transcript_ID),
+      Pair = first(Pair),
+      Condition = first(Condition),
+      Sex = first(Sex),
+      RIN = first(RIN),
+      pH = first(pH),
+      Age.of.death = first(Age.of.death),
+      .groups = "drop"
+    )
+  
+  # Separate qPCR measurements for targets and reference 
+  targets = data.frame(df_summary[(df_summary$Transcript_ID != "GAPDH"),])
+  gapdh = data.frame(df_summary[(df_summary$Transcript_ID == "GAPDH"),])
+  
+  # ΔCT calculation
+  targets$del_ct = sapply(1:nrow(targets), function(i) {
+    val = (targets[i,"mean_CT"] - gapdh[which(gapdh$Donor_ID == targets[i,"Donor_ID"]),"mean_CT"])
+    ifelse(length(val) == 0, NA, val)
+  })
+  targets = targets[!is.na(targets$del_ct),]
+  
+  # LogFC calculation
+  fc_results <- targets %>%
+    group_by(Transcript_ID, Condition) %>%
+    summarise(
+      mean_deltaCT = mean(del_ct, na.rm = TRUE),
+      se_deltaCT = sd(del_ct, na.rm = TRUE) / sqrt(n()),
+      .groups = "drop"
+    ) %>%
+    pivot_wider(
+      names_from = Condition,
+      values_from = c(mean_deltaCT, se_deltaCT),
+      names_sep = "_"
+    ) %>%
+    mutate(
+      logFC = mean_deltaCT_Control - mean_deltaCT_SCZ,
+      fold_change = 2^(logFC),
+      SE = sqrt(se_deltaCT_Control^2 + se_deltaCT_SCZ^2)
+    )
+  fc_results$method = "qPCR"
+  
+  # Merge qPCR and DET data
+  df = (rbind.data.frame(fc_results[,c("Transcript_ID", "logFC", "method", "SE")], det_orig[,c("Transcript_ID", "logFC", "method", "SE")]))
+}
 
 ################################################################################
 ##### PANEL "A" :: Demographic and technical characteristics of 15 matched     #
@@ -176,22 +178,24 @@ df = (rbind.data.frame(fc_results[,c("Transcript_ID", "logFC", "method", "SE")],
 ##### PANEL "D" :: Comparison of SCZ versus control transcript-level           #  
 ################## differences measured by RNA-seq and qPCR ####################
 
-df$Transcript_ID = ordered(df$Transcript_ID, levels=c("ENST00000496818", "ENST00000465278", "ENST00000483136", "ENST00000492150", "ENST00000437508", "ENST00000502281", "ENST00000460908", "ENST00000338700"))
-df$method = ordered(df$method, levels=c("RNA-seq", "qPCR"))
-logfc_plot = ggplot(df, aes(x = Transcript_ID, y = logFC, fill = method)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
-  geom_hline(yintercept = 0, color = "gray50", linetype = "dashed") +
-  labs(
-    title = "Comparison of log2 Fold Change (logFC)",
-    x = "Target",
-    y = "log2 Fold Change",
-    fill = "Method"
-  ) +
-  geom_errorbar(aes(ymin = logFC - SE, ymax = logFC + SE), width = 0.3) + 
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  ) +   scale_fill_manual(values = pal_nejm("default")(8)[c(4,3)])
-logfc_plot
-
-pdf(file=file.path(ROOT, "outputs", "Fig_S10d.pdf"), width=10, height=6); print(logfc_plot); dev.off()
+{
+  df$Transcript_ID = ordered(df$Transcript_ID, levels=c("ENST00000496818", "ENST00000465278", "ENST00000483136", "ENST00000492150", "ENST00000437508", "ENST00000502281", "ENST00000460908", "ENST00000338700"))
+  df$method = ordered(df$method, levels=c("RNA-seq", "qPCR"))
+  logfc_plot = ggplot(df, aes(x = Transcript_ID, y = logFC, fill = method)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+    geom_hline(yintercept = 0, color = "gray50", linetype = "dashed") +
+    labs(
+      title = "Comparison of log2 Fold Change (logFC)",
+      x = "Target",
+      y = "log2 Fold Change",
+      fill = "Method"
+    ) +
+    geom_errorbar(aes(ymin = logFC - SE, ymax = logFC + SE), width = 0.3) + 
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    ) +   scale_fill_manual(values = pal_nejm("default")(8)[c(4,3)])
+  logfc_plot
+  
+  pdf(file=file.path(ROOT, "outputs", "Fig_S10d.pdf"), width=10, height=6); print(logfc_plot); dev.off()
+}

@@ -37,6 +37,7 @@ library(UpSetR)
   ATACSEQ_COUNT_MATRIX_ADJ = file.path(ROOT, "inputs", "atacseq_count_matrix_adj.RDS")   # Covariate-adjusted read count matrix for ATAC-seq data
   ATACSEQ_COUNT_MATRIX_RESIDUALIZED_CELLTYPE_KEPT = file.path(ROOT, "inputs", "atacseq_count_matrix_residualized_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
   ATACSEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT = file.path(ROOT, "inputs", "atacseq_count_matrix_residualized_Dx_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
+  RNASEQ_GENES = file.path(ROOT, "inputs", "genes_annot.RDS")                            # Gencode & Ensembl gene annotation
   RNASEQ_COUNT_MATRIX_RAW = file.path(ROOT, "inputs", "rnaseq_count_matrix_raw.RDS")     # Raw read count matrix for RNA-seq data
   RNASEQ_COUNT_MATRIX_ADJ = file.path(ROOT, "inputs", "rnaseq_count_matrix_adj.RDS")     # Covariate-adjusted read count matrix for RNA-seq data
   RNASEQ_COUNT_MATRIX_RESIDUALIZED_CELLTYPE_KEPT = file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
@@ -88,7 +89,7 @@ library(UpSetR)
   
   myPalette = colorRampPalette(c("#F7FCF5", "#E5F5E0", "#C7E9C0", "#A1D99B", "#74C476", "#41AB5D", "#238B45", "#006D2C", "#00441B"), space = "Lab")
   
-  dir.create(file.path(ROOT, "outputs"))
+  dir.create(file.path(ROOT, "outputs"), showWarnings=F)
 }
 
 ########################################################################################
@@ -169,11 +170,11 @@ library(UpSetR)
   }
   
   # Calculate density for density plots
-  get_density <- function(x, y, ...) {
-    dens <- MASS::kde2d(x, y, ...)
-    ix <- findInterval(x, dens$x)
-    iy <- findInterval(y, dens$y)
-    ii <- cbind(ix, iy)
+  get_density = function(x, y, ...) {
+    dens = MASS::kde2d(x, y, ...)
+    ix = findInterval(x, dens$x)
+    iy = findInterval(y, dens$y)
+    ii = cbind(ix, iy)
     return(dens$z[ii])
   }
   
@@ -189,10 +190,10 @@ library(UpSetR)
   }
   
   # Ensembl Gene name and indentifier converter
-  symbol_to_ensembl <- function(gene_symbols, anno_df) {
-    ids <- anno_df$PeakID[match(gene_symbols, anno_df$gene_name)]
+  symbol_to_ensembl = function(gene_symbols, anno_df) {
+    ids = anno_df$PeakID[match(gene_symbols, anno_df$gene_name)]
     # drop NAs and keep unique
-    ids <- unique(ids[!is.na(ids)])
+    ids = unique(ids[!is.na(ids)])
     ids
   }
   
@@ -227,6 +228,9 @@ library(UpSetR)
   qcPeakAnno = readRDS(ATACSEQ_PEAKS)
   rownames(qcPeakAnno) = qcPeakAnno$PeakID
   
+  # Load Ensembl & txdb
+  txdb = loadDb(TXDB)
+  
   # Load raw count matrices 
   rnaseq_countMatrixRaw = readRDS(RNASEQ_COUNT_MATRIX_RAW)
   atacseq_countMatrixRaw = readRDS(ATACSEQ_COUNT_MATRIX_RAW)
@@ -237,15 +241,15 @@ library(UpSetR)
   
   # Load matrices with residualized technical covariates but kept Dx and Cell type effect
   rnaseq_countMatrixResiDxCell = readRDS(RNASEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT)
-  rnaseq_expr = log2(2^rnaseq_countMatrixResiDxCell + 1)
+  rnaseq_countMatrixResiDxCell = log2(2^rnaseq_countMatrixResiDxCell + 1)
   atacseq_countMatrixResiDxCell = readRDS(ATACSEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT)
-  atacseq_expr = log2(2^atacseq_countMatrixResiDxCell + 1)
+  atacseq_countMatrixResiDxCell = log2(2^atacseq_countMatrixResiDxCell + 1)
   
   # Load matrices with residualized technical covariates but kept Cell type effect
-  rnaseq_countMatrixResiCell = readRDS(RNASEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT)
-  rnaseq_expr = log2(2^rnaseq_countMatrixResiCell + 1)
-  atacseq_countMatrixResiCell = readRDS(ATACSEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT)
-  atacseq_expr = log2(2^atacseq_countMatrixResiCell + 1)
+  rnaseq_countMatrixResiCell = readRDS(RNASEQ_COUNT_MATRIX_RESIDUALIZED_CELLTYPE_KEPT)
+  rnaseq_countMatrixResiCell = log2(2^rnaseq_countMatrixResiCell + 1)
+  atacseq_countMatrixResiCell = readRDS(ATACSEQ_COUNT_MATRIX_RESIDUALIZED_CELLTYPE_KEPT)
+  atacseq_countMatrixResiCell = log2(2^atacseq_countMatrixResiCell + 1)
   
   # Load matrices with residualized technical covariates but kept Dx effect (Cell effect doesn't need to be removed because these matrices are cell-specific)
   rnaseq_countMatrixResiDxCellSep = list(
@@ -254,6 +258,9 @@ library(UpSetR)
     "OLIG" = readRDS(file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_CellType_kept_OLIG.RDS")),
     "MGAS" = readRDS(file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_CellType_kept_MGAS.RDS"))
   )
+  
+  # Load differential analysis results
+  degAnalysis = new.env(); load(DEG_ANALYSIS, envir=degAnalysis)
   
   # Load pre-calculated output of gene module analysis (complete analysis in gene_modules.R)
   genMod = new.env(); load(file.path(ROOT, "inputs", "gene_modules.Rdata"), envir=genMod)
@@ -272,39 +279,6 @@ library(UpSetR)
   tmpRna = qcRna
   tmpAtac = qcAtac
   
-  ###################################
-  #TODO: custom fixes: correct CSV files later
-  deconvRnaseq = read.csv("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/atacseq/analysis/all/deconv_rnaseq.csv")
-  deconvRnaseq = read.csv("~/Desktop/qc_all_rna.tsv", sep="\t")
-  genoPcRnaseq = read.csv("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/rnaseq/analysis/gene_cell_all__norm_none__BIC_2_in_0.05__CPM_1__in_0.2/files/reviewer_ancestryPC/allInfo.csv")
-  qcRna$deconvolution_GABA = deconvRnaseq[match(qcRna$ID, deconvRnaseq$ID),"deconvolution_GABA"]
-  qcRna$deconvolution_GLU = deconvRnaseq[match(qcRna$ID, deconvRnaseq$ID),"deconvolution_GLU"]
-  qcRna$deconvolution_AST = deconvRnaseq[match(qcRna$ID, deconvRnaseq$ID),"deconvolution_AST"]
-  qcRna$deconvolution_MG = deconvRnaseq[match(qcRna$ID, deconvRnaseq$ID),"deconvolution_MG"]
-  qcRna$deconvolution_ODC = deconvRnaseq[match(qcRna$ID, deconvRnaseq$ID),"deconvolution_ODC"]
-  qcRna$geno_PC1 = genoPcRnaseq[match(qcRna$ID, genoPcRnaseq$ID),"geno_PC1"]
-  qcRna$geno_PC2 = genoPcRnaseq[match(qcRna$ID, genoPcRnaseq$ID),"geno_PC2"]
-  qcRna$geno_PC3 = genoPcRnaseq[match(qcRna$ID, genoPcRnaseq$ID),"geno_PC3"]
-  qcRna$cell_subtype_abbreviation = toupper(qcRna$cell_subtype_abbreviation)
-  write.csv(qcRna, file="/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/atacseq/analysis/all/deconv_rnaseq.csv", row.names=F)
-  write.csv(qcRna, file="~/Desktop/molecular_profiling/molecular_profiling//inputs/qc_all_rna.csv", row.names=F)
-  
-  deconvAtacseq = read.csv("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/rnaseq/analysis/gene_cell_all__norm_none__BIC_2_in_0.05__CPM_1__in_0.2/deconv_atacseq.csv")
-  deconvAtacseq = read.csv("~/Desktop/qc_all_atac.tsv", sep="\t")
-  #deconvAtacseq = read.csv("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/rnaseq/analysis/gene_cell_all__norm_none__BIC_2_in_0.05__CPM_1__in_0.2/deconv_atacseq.csv")
-  genoPcAtacseq = read.csv("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/atacseq/analysis/all/reviewer_ancestryPC/allInfo.csv")
-  qcAtac$deconvolution_GABA = deconvAtacseq[match(qcAtac$ID, deconvAtacseq$ID),"deconvolution_GABA"]
-  qcAtac$deconvolution_GLU = deconvAtacseq[match(qcAtac$ID, deconvAtacseq$ID),"deconvolution_GLU"]
-  qcAtac$deconvolution_OLIG = deconvAtacseq[match(qcAtac$ID, deconvAtacseq$ID),"deconvolution_OLIG"]
-  qcAtac$deconvolution_MGAS = deconvAtacseq[match(qcAtac$ID, deconvAtacseq$ID),"deconvolution_MGAS"]
-  qcAtac$geno_PC1 = genoPcAtacseq[match(qcAtac$ID, gsub("Sample_", "", genoPcAtacseq$ID)),"geno_PC1"]
-  qcAtac$geno_PC2 = genoPcAtacseq[match(qcAtac$ID, gsub("Sample_", "", genoPcAtacseq$ID)),"geno_PC2"]
-  qcAtac$geno_PC3 = genoPcAtacseq[match(qcAtac$ID, gsub("Sample_", "", genoPcAtacseq$ID)),"geno_PC3"]
-  qcAtac$cell_subtype_abbreviation = gsub("GABAergic", "GABA", gsub("glutamatergic", "GLU", gsub("oligodendrocytes", "OLIG", gsub("microgliaAndAstrocytes", "MGAS", qcAtac$cell_subtype_abbreviation))))
-  write.csv(qcAtac, file="/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/rnaseq/analysis/gene_cell_all__norm_none__BIC_2_in_0.05__CPM_1__in_0.2/deconv_atacseq.csv", row.names=F)
-  write.csv(qcAtac, file="~/Desktop/molecular_profiling/molecular_profiling//inputs/qc_all_atac.csv", row.names=F)
-  ###################################
-  
   # Custom fixes
   cols = intersect(colnames(tmpRna), colnames(tmpAtac))
   tmpAll = rbind.data.frame(tmpRna[,cols], tmpAtac[,cols])
@@ -312,7 +286,7 @@ library(UpSetR)
   tmpAll$Ancestry = gsub("Hispanic", "AMR", gsub("African-American", "AFR", gsub("Asian", "AS", gsub("Caucasian", "EUR", tmpAll$Ethnicity))))
 
   # Plot (density): Sex-by-Age
-  tmpFiltered <- tmpAll %>% filter(Sex %in% c("XX", "XY")) %>% mutate(SexLabel = ifelse(Sex == "XX", "Female", "Male"))
+  tmpFiltered = tmpAll %>% filter(Sex %in% c("XX", "XY")) %>% mutate(SexLabel = ifelse(Sex == "XX", "Female", "Male"))
   sexByAgePlot = ggplot(tmpFiltered, aes(x = ageOfDeath, fill = SexLabel, color = SexLabel)) + geom_density(alpha = 0.4, adjust = 1.2) + 
     geom_vline(data = tmpFiltered %>% group_by(SexLabel) %>% summarise(m = mean(ageOfDeath)),
                aes(xintercept = m, color = SexLabel), linetype = "dashed", size = 1) + scale_fill_manual(values = c("Female" = "#E69F00", "Male" = "#56B4E9")) +
@@ -320,48 +294,48 @@ library(UpSetR)
     theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
 
   # Plot (pie): Ancestry distribution
-  ancestry_counts <- tmpAll %>% filter(Ancestry %in% c("AFR", "AMR", "EUR", "AS")) %>% count(Ancestry) %>% mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
-  ancestry_colors <- c("AFR" = "#E69F00", "AMR" = "#56B4E9", "EUR" = "#009E73", "AS" = "#F0E442")
-  ancestryPiePlot <- ggplot(ancestry_counts, aes(x = "", y = n, fill = Ancestry)) + geom_bar(stat = "identity", width = 1, color = "black") +
+  ancestry_counts = tmpAll %>% filter(Ancestry %in% c("AFR", "AMR", "EUR", "AS")) %>% count(Ancestry) %>% mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
+  ancestry_colors = c("AFR" = "#E69F00", "AMR" = "#56B4E9", "EUR" = "#009E73", "AS" = "#F0E442")
+  ancestryPiePlot = ggplot(ancestry_counts, aes(x = "", y = n, fill = Ancestry)) + geom_bar(stat = "identity", width = 1, color = "black") +
     coord_polar(theta = "y") + geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) + scale_fill_manual(values = ancestry_colors) +
     theme_void(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank())
   
   # Plot (pie): Sex distribution
-  sex_counts <- tmpAll %>% filter(Sex %in% c("XX", "XY")) %>% mutate(SexLabel = ifelse(Sex == "XX", "Female", "Male")) %>% count(SexLabel) %>%
+  sex_counts = tmpAll %>% filter(Sex %in% c("XX", "XY")) %>% mutate(SexLabel = ifelse(Sex == "XX", "Female", "Male")) %>% count(SexLabel) %>%
     mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
-  sex_colors <- c("Female" = "#E69F00", "Male" = "#56B4E9") # Define colors
-  sexPiePlot <- ggplot(sex_counts, aes(x = "", y = n, fill = SexLabel)) + geom_bar(stat = "identity", width = 1, color = "black") + coord_polar(theta = "y") +
+  sex_colors = c("Female" = "#E69F00", "Male" = "#56B4E9") # Define colors
+  sexPiePlot = ggplot(sex_counts, aes(x = "", y = n, fill = SexLabel)) + geom_bar(stat = "identity", width = 1, color = "black") + coord_polar(theta = "y") +
     geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) + scale_fill_manual(values = sex_colors) + theme_void(base_size = 14) +
     theme(legend.position = "bottom", legend.title = element_blank())
 
   # Plot (density): Dx-by-age plot
-  dx_filtered <- tmpAll %>% filter(Dx %in% c("Control", "SCZ")) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
-  dx_colors <- c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors matching the figure
-  dxByAgePlot <- ggplot(dx_filtered, aes(x = ageOfDeath, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
+  dx_filtered = tmpAll %>% filter(Dx %in% c("Control", "SCZ")) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
+  dx_colors = c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors matching the figure
+  dxByAgePlot = ggplot(dx_filtered, aes(x = ageOfDeath, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
     geom_vline(data = dx_filtered %>% group_by(DxLabel) %>% summarise(m = mean(ageOfDeath)), aes(xintercept = m, color = DxLabel), linetype = "dashed", size = 1) +
     scale_fill_manual(values = dx_colors) + scale_color_manual(values = dx_colors) + labs(x = "Age of death", y = "Density", fill = NULL, color = NULL) +
     theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
 
   # Plot (density): Dx-by-pH plot
-  ph_filtered <- tmpAll %>% filter(Dx %in% c("Control", "SCZ"), !is.na(pH)) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
-  dx_colors <- c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors
-  dxByPhPlot <- ggplot(ph_filtered, aes(x = pH, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
+  ph_filtered = tmpAll %>% filter(Dx %in% c("Control", "SCZ"), !is.na(pH)) %>% mutate(DxLabel = ifelse(Dx == "SCZ", "SCZ", "Control"))
+  dx_colors = c("SCZ" = "#56B4E9", "Control" = "#E69F00") # Define colors
+  dxByPhPlot = ggplot(ph_filtered, aes(x = pH, fill = DxLabel, color = DxLabel)) + geom_density(alpha = 0.4, adjust = 1.2) +
     geom_vline(data = ph_filtered %>% group_by(DxLabel) %>% summarise(m = mean(pH)), aes(xintercept = m, color = DxLabel), linetype = "dashed", size = 1) +
     scale_fill_manual(values = dx_colors) + scale_color_manual(values = dx_colors) + labs(x = "pH", y = "Density", fill = NULL, color = NULL) +
     theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
 
   # Plot (pie): Antipsychotics use for SCZ samples
-  ap_pie_data <- tmpAll %>% filter(Dx == "SCZ") %>% mutate(AP_Category = case_when( AntipsychAtyp & AntipsychTyp ~ "Both",
+  ap_pie_data = tmpAll %>% filter(Dx == "SCZ") %>% mutate(AP_Category = case_when( AntipsychAtyp & AntipsychTyp ~ "Both",
                                                                                     AntipsychAtyp & !AntipsychTyp ~ "Atyp only", !AntipsychAtyp & AntipsychTyp ~ "Typ only", TRUE ~ "None" )) %>%
   count(AP_Category) %>% mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
-  ap_colors <- c("Both" = "#D55E00", "Atyp only" = "#E69F00", "Typ only" = "#56B4E9", "None" = "#009E73")  # Define colors for each category
-  antipsychPlot <- ggplot(ap_pie_data, aes(x = "", y = n, fill = AP_Category)) + geom_bar(stat = "identity", width = 1, color = "black") +
+  ap_colors = c("Both" = "#D55E00", "Atyp only" = "#E69F00", "Typ only" = "#56B4E9", "None" = "#009E73")  # Define colors for each category
+  antipsychPlot = ggplot(ap_pie_data, aes(x = "", y = n, fill = AP_Category)) + geom_bar(stat = "identity", width = 1, color = "black") +
     coord_polar(theta = "y") + geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) + scale_fill_manual(values = ap_colors) +
     theme_void(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank())
   
   # Fig. S1
   fig_S1 = ancestryPiePlot + antipsychPlot + sexPiePlot + sexByAgePlot + dxByAgePlot + plot_layout(nrow = 1)
-  mpdf("Fig_S1", outDir=file.path(ROOT, "outputs"), width=12, height=8); print(fig_SX1); dev.off()
+  mpdf("Fig_S1", outDir=file.path(ROOT, "outputs"), width=12, height=8); print(fig_S1); dev.off()
 }
 
 ####################################################################################################
@@ -421,12 +395,12 @@ library(UpSetR)
   colnames(GABA) = c("insertSize", "type")
   GLU = cbind.data.frame(unlist(sapply(unique(qcRna[qcRna$cell_subtype=="GLU","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcRna[qcRna$cell_subtype=="GLU","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "GLU")
   colnames(GLU) = c("insertSize", "type")
-  Olig = cbind.data.frame(unlist(sapply(unique(qcRna[qcRna$cell_subtype=="Olig","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcRna[qcRna$cell_subtype=="Olig","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "Olig")
+  Olig = cbind.data.frame(unlist(sapply(unique(qcRna[qcRna$cell_subtype=="OLIG","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcRna[qcRna$cell_subtype=="OLIG","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "OLIG")
   colnames(Olig) = c("insertSize", "type")
-  MgAs = cbind.data.frame(unlist(sapply(unique(qcRna[qcRna$cell_subtype=="MgAs","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcRna[qcRna$cell_subtype=="MgAs","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "MgAs")
+  MgAs = cbind.data.frame(unlist(sapply(unique(qcRna[qcRna$cell_subtype=="MGAS","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcRna[qcRna$cell_subtype=="MGAS","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "MGAS")
   colnames(MgAs) = c("insertSize", "type")
   histMedianInsertSizeDf = rbind.data.frame(GABA, GLU, Olig, MgAs)
-  histMedianInsertSizeDf$type = ordered(histMedianInsertSizeDf$type, levels=c("GABA", "GLU", "Olig", "MgAs"))
+  histMedianInsertSizeDf$type = ordered(histMedianInsertSizeDf$type, levels=CELL_TYPES)
   
   histMedianInsertSize = ggplot(histMedianInsertSizeDf, aes(insertSize, colour = type)) + geom_density(size=1) + coord_equal()  + 
     theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.5, 0.85), 
@@ -436,8 +410,17 @@ library(UpSetR)
   
   #####
   # Fig. S2b :: Sex check based on measuring the number reads mapped on chromosome Y
-  chrY_genes = qcRna$qcPeakAnno[(qcRna$qcPeakAnno$seqnames=="chrY") & (qcRna$qcPeakAnno$PeakID %in% qcRna$initialDgeObj$genes$PeakID),]
-  chrY_genes = chrY_genes[(chrY_genes$end < 10001 | chrY_genes$start > 2781479) & (chrY_genes$end < 155701383 | chrY_genes$start > 156030895),]
+  chrY_genes = gtf[(gtf$seqnames == "chrY") & (gtf$PeakID %in% rownames(rnaseq_countMatrixAdj)),]
+  chrY_genes = chrY_genes[(chrY_genes$end < 10001 | chrY_genes$start > 2781479) & (chrY_genes$end < 155701383 | chrY_genes$start > 156030895),] # Outside PAR regions
+  
+  qcRna$chryCounts = unname(colSums(rnaseq_countMatrixRaw[rownames(rnaseq_countMatrixRaw) %in% chrY_genes$PeakID,match(qcRna$ID,colnames(rnaseq_countMatrixAdj))]))
+  
+  chrYplot = ggplot(qcRna, aes(finalReadCount, chryCounts, color=Gender)) + 
+    geom_point() + scale_color_manual(name="Sex", labels=c("Female", "Male "), values = c(npgList[["NEURON"]], npgList[["GLIA"]])) +
+    theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.15, 0.85),
+                       axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
+    xlab("Number or reads") + ylab("chrY read count") + coord_equal()
+  mpdf("Fig_S2_b", outDir=file.path(ROOT, "outputs")); print(chrYplot); dev.off()
   
   #####  Fig. S2c :: Genotype check based on pair-wise comparison of genotypes called from RNA-seq samples with SNP-arrays
   kinshipRnaSnparray = read.csv(KINSHIP_RNASEQ_SNPPARRAY)
@@ -448,7 +431,6 @@ library(UpSetR)
     geom_density(alpha=0, aes(color=`Same person`, fill=`Same person`), size=1) + 
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.4, 0.85),
           axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + coord_equal() + xlab("Kinship score") + ylab("Density")
-  kinshipRnaSnparray
   mpdf("Fig_S2_c", outDir=file.path(ROOT, "outputs")); print(kinshipRnaSnparray); dev.off()
 }
 
@@ -456,7 +438,8 @@ library(UpSetR)
 ##### FIG. S2 (ATAC-SEQ) / PART II :: QUALITY CONTROL ##############################################
 
 {
-  qcAtac$mergingDesigns = paste0(qcAtac$cell_subtype, "_", qcAtac$Dx)
+  # Simplify metadata & QC table by "Groups" (combination of cell type & diagnosis status)
+  qcAtac$mergingDesigns = paste0(qcAtac$cell_subtype_asFactor, "_", qcAtac$Dx)
   qcAtac$mergingDesigns = ordered(qcAtac$mergingDesigns, levels=c("GABAergic_Control", "GABAergic_SCZ", "glutamatergic_Control", "glutamatergic_SCZ", "microgliaAndAstrocytes_Control", "microgliaAndAstrocytes_SCZ", "oligodendrocytes_Control", "oligodendrocytes_SCZ"))
   
   qcAtacSum = ddply(qcAtac, "mergingDesigns", summarize,
@@ -510,86 +493,94 @@ library(UpSetR)
   
   #####
   # Fig. S2j :: Median read insert size distribution
-  gabaergic = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype=="GABAergic","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype=="GABAergic","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "GABAergic")
-  colnames(gabaergic) = c("insertSize", "type")
-  glutamatergic = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype=="glutamatergic","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype=="glutamatergic","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "glutamatergic")
-  colnames(glutamatergic) = c("insertSize", "type")
-  oligodendrocytes = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype=="oligodendrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype=="oligodendrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "oligodendrocytes")
-  colnames(oligodendrocytes) = c("insertSize", "type")
-  microgliaAndAstrocytes = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype=="microgliaAndAstrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype=="microgliaAndAstrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "microgliaAndAstrocytes")
-  colnames(microgliaAndAstrocytes) = c("insertSize", "type")
-  histMedianInsertSizeDf = rbind.data.frame(gabaergic, glutamatergic, oligodendrocytes, microgliaAndAstrocytes)
-  histMedianInsertSizeDf$type = gsub("GABAergic", "GABA", gsub("glutamatergic", "GLU", gsub("oligodendrocytes", "OLIG", gsub("microgliaAndAstrocytes", "MGAS", histMedianInsertSizeDf$type))))
-  histMedianInsertSizeDf$type = ordered(histMedianInsertSizeDf$type, levels=c("GABA", "GLU", "OLIG", "MGAS"))
-  
-  histMedianInsertSize = ggplot(histMedianInsertSizeDf, aes(insertSize, colour = type)) + geom_density(size=1) + coord_equal()  + 
-    theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.5, 0.85), 
-                       axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) +
-    scale_colour_manual(labels=c("GABA", "GLU", "OLIG", "MGAS"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
-  mpdf("Fig_S2_j", outDir=file.path(ROOT, "outputs")); print(histMedianInsertSize); dev.off()
+  {
+    gabaergic = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype_asFactor=="GABAergic","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype_asFactor=="GABAergic","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "GABAergic")
+    colnames(gabaergic) = c("insertSize", "type")
+    glutamatergic = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype_asFactor=="glutamatergic","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype_asFactor=="glutamatergic","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "glutamatergic")
+    colnames(glutamatergic) = c("insertSize", "type")
+    oligodendrocytes = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype_asFactor=="oligodendrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype_asFactor=="oligodendrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "oligodendrocytes")
+    colnames(oligodendrocytes) = c("insertSize", "type")
+    microgliaAndAstrocytes = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype_asFactor=="microgliaAndAstrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype_asFactor=="microgliaAndAstrocytes","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "microgliaAndAstrocytes")
+    colnames(microgliaAndAstrocytes) = c("insertSize", "type")
+    histMedianInsertSizeDf = rbind.data.frame(gabaergic, glutamatergic, oligodendrocytes, microgliaAndAstrocytes)
+    histMedianInsertSizeDf$type = gsub("GABAergic", "GABA", gsub("glutamatergic", "GLU", gsub("oligodendrocytes", "OLIG", gsub("microgliaAndAstrocytes", "MGAS", histMedianInsertSizeDf$type))))
+    histMedianInsertSizeDf$type = ordered(histMedianInsertSizeDf$type, levels=c("GABA", "GLU", "OLIG", "MGAS"))
+    
+    histMedianInsertSize = ggplot(histMedianInsertSizeDf, aes(insertSize, colour = type)) + geom_density(size=1) + coord_equal()  + 
+      theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.5, 0.85), 
+                         axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) +
+      scale_colour_manual(labels=c("GABA", "GLU", "OLIG", "MGAS"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
+    mpdf("Fig_S2_j", outDir=file.path(ROOT, "outputs")); print(histMedianInsertSize); dev.off()
+  }
   
   #####
   # Fig. S2k :: Distance of OCRs from the closest TSS
-  maxDistance = 1E5
-  breaksVector = seq(-20,20)*(1E5/20)
-  gabaPeaks = read.csv(file.path(ROOT, "inputs", "peaks_GABA.bed"), sep="\t", header=F)
-  gabaHistogram = hist(gabaPeaks$V14[abs(gabaPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
-  gabaHistogram$proportions = gabaHistogram$counts / sum(gabaHistogram$counts)
-  gluPeaks = read.csv(file.path(ROOT, "inputs", "peaks_GLU.bed"), sep="\t", header=F)
-  gluHistogram = hist(gluPeaks$V14[abs(gluPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
-  gluHistogram$proportions = gluHistogram$counts / sum(gluHistogram$counts)
-  oligPeaks = read.csv(file.path(ROOT, "inputs", "peaks_OLIG.bed"), sep="\t", header=F)
-  oligHistogram = hist(oligPeaks$V14[abs(oligPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
-  oligHistogram$proportions = oligHistogram$counts / sum(oligHistogram$counts)
-  mgasPeaks = read.csv(file.path(ROOT, "inputs", "peaks_MGAS.bed"), sep="\t", header=F)
-  mgasHistogram = hist(mgasPeaks$V14[abs(mgasPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
-  mgasHistogram$proportions = mgasHistogram$counts / sum(mgasHistogram$counts)
-  
-  histDf = data.frame(t(rbind(gabaHistogram$proportions, gluHistogram$proportions, oligHistogram$proportions, mgasHistogram$proportions)))
-  colnames(histDf) = c("GABA", "GLU", "OLIG", "MGAS")
-  histDf$breaks = gabaHistogram$mids
-  
-  histTssDist = ggplot() +
-    geom_line(data=histDf, aes(x=breaks, y=GABA, color=npgList$GABA), linetype="solid", size=0.5) +
-    geom_point(data=histDf, aes(x=breaks, y=GABA, color=npgList$GABA), size=1) +
-    geom_line(data=histDf, aes(x=breaks, y=GLU, color=npgList$GLU), linetype="solid", size=0.5) +
-    geom_point(data=histDf, aes(x=breaks, y=GLU, color=npgList$GLU), size=1) +
-    geom_line(data=histDf, aes(x=breaks, y=OLIG, color=npgList$OLIG), linetype="solid", size=0.5) +
-    geom_point(data=histDf, aes(x=breaks, y=OLIG, color=npgList$OLIG), size=1) +
-    geom_line(data=histDf, aes(x=breaks, y=MGAS, color=npgList$MGAS), linetype="solid", size=0.5) +
-    geom_point(data=histDf, aes(x=breaks, y=MGAS, color=npgList$MGAS), size=1) +
-    theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.75, 0.85), 
-                       axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
-    xlab("Distance to TSS [bp]") + ylab("Proportion of OCRs") + coord_equal()  + 
-    scale_colour_manual(labels=c("GABA", "GLU", "OLIG", "MGAS"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
-  mpdf("Fig_S2_k", outDir=file.path(ROOT, "outputs")); print(histTssDist); dev.off()
+  {
+    maxDistance = 1E5
+    breaksVector = seq(-20,20)*(1E5/20)
+    gabaPeaks = read.csv(file.path(ROOT, "inputs", "peaks_GABA.bed"), sep="\t", header=F)
+    gabaHistogram = hist(gabaPeaks$V14[abs(gabaPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
+    gabaHistogram$proportions = gabaHistogram$counts / sum(gabaHistogram$counts)
+    gluPeaks = read.csv(file.path(ROOT, "inputs", "peaks_GLU.bed"), sep="\t", header=F)
+    gluHistogram = hist(gluPeaks$V14[abs(gluPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
+    gluHistogram$proportions = gluHistogram$counts / sum(gluHistogram$counts)
+    oligPeaks = read.csv(file.path(ROOT, "inputs", "peaks_OLIG.bed"), sep="\t", header=F)
+    oligHistogram = hist(oligPeaks$V14[abs(oligPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
+    oligHistogram$proportions = oligHistogram$counts / sum(oligHistogram$counts)
+    mgasPeaks = read.csv(file.path(ROOT, "inputs", "peaks_MGAS.bed"), sep="\t", header=F)
+    mgasHistogram = hist(mgasPeaks$V14[abs(mgasPeaks$V14) <= maxDistance], breaks=breaksVector, plot=F)
+    mgasHistogram$proportions = mgasHistogram$counts / sum(mgasHistogram$counts)
+    
+    histDf = data.frame(t(rbind(gabaHistogram$proportions, gluHistogram$proportions, oligHistogram$proportions, mgasHistogram$proportions)))
+    colnames(histDf) = c("GABA", "GLU", "OLIG", "MGAS")
+    histDf$breaks = gabaHistogram$mids
+    
+    histTssDist = ggplot() +
+      geom_line(data=histDf, aes(x=breaks, y=GABA), color=npgList$GABA, linetype="solid", size=0.5) +
+      geom_point(data=histDf, aes(x=breaks, y=GABA), color=npgList$GABA, size=1) +
+      geom_line(data=histDf, aes(x=breaks, y=GLU), color=npgList$GLU, linetype="solid", size=0.5) +
+      geom_point(data=histDf, aes(x=breaks, y=GLU), color=npgList$GLU, size=1) +
+      geom_line(data=histDf, aes(x=breaks, y=OLIG), color=npgList$OLIG, linetype="solid", size=0.5) +
+      geom_point(data=histDf, aes(x=breaks, y=OLIG), color=npgList$OLIG, size=1) +
+      geom_line(data=histDf, aes(x=breaks, y=MGAS), color=npgList$MGAS, linetype="solid", size=0.5) +
+      geom_point(data=histDf, aes(x=breaks, y=MGAS), color=npgList$MGAS, size=1) +
+      theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.75, 0.85), 
+                         axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
+      xlab("Distance to TSS [bp]") + ylab("Proportion of OCRs") + coord_equal()  + 
+      scale_colour_manual(labels=c("GABA", "GLU", "OLIG", "MGAS"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
+    mpdf("Fig_S2_k", outDir=file.path(ROOT, "outputs")); print(histTssDist); dev.off()
+  }
   
   #####
   # Fig. S2n :: Sex check based on measuring the number reads mapped on OCRs located at chromosome Y (pseudoautosomal regions not counted)
-  chrYplot = ggplot(qcAtac, aes(fracReadsInNonBlacklistedPeaks, chryCounts, color=Gender)) + 
-    geom_point() + scale_color_manual(name="Sex", labels=c("Female", "Male "), values = c(npgList[["NEURON"]], npgList[["GLIA"]])) +
-    theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.15, 0.85),
-                       axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
-    xlab("Fraction of OCRs in peaks of open chromatin") + ylab("chrY read count") + coord_equal() 
-  mpdf("Fig_S2_n", outDir=file.path(ROOT, "outputs")); print(chrYplot); dev.off()
+  {
+    chrYplot = ggplot(qcAtac, aes(fracReadsInNonBlacklistedPeaks, chryCounts, color=Gender)) + 
+      geom_point() + scale_color_manual(name="Sex", labels=c("Female", "Male "), values = c(npgList[["NEURON"]], npgList[["GLIA"]])) +
+      theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.15, 0.85),
+                         axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
+      xlab("Fraction of OCRs in peaks of open chromatin") + ylab("chrY read count") + coord_equal() 
+    mpdf("Fig_S2_n", outDir=file.path(ROOT, "outputs")); print(chrYplot); dev.off()
+  }
   
   #####
   # Fig. S2o :: Genotype check based on pair-wise comparison of genotypes called from ATAC-seq samples with SNP-arrays
-  kinshipAtacSnparray = read.csv(KINSHIP_ATACSEQ_SNPPARRAY)
-  z = kinshipAtacSnparray
-  z$ID1x = sapply(z$ID2, function(x) {
-    xx = strsplit(x, "_")[[1]]
-    paste0(xx[2:length(xx)], collapse="_")
-  })
-  z = z[(z$ID1x %in% qcAtac$ID),]
-  z = z[!(is.na(z$samePerson)),]
-  z$`Same person`= ordered(ifelse(z$samePerson, "yes", "no"), levels=c("yes", "no"))
-  kinshipAtacSnparray = ggplot(z, aes(Kinship)) + scale_color_manual(name="Same person", labels=c("yes", "no"), values = c(npgList[["NEURON"]], npgList[["GLIA"]])) + 
-    theme_bw() + scale_x_continuous(expand = c(0, 0)) + scale_y_continuous(expand = c(0, 0)) +
-    geom_density(alpha=0, aes(color=`Same person`, fill=`Same person`), size=1) + 
-    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.4, 0.85),
-          axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + coord_equal() + xlab("Kinship score") + ylab("Density")
-  mpdf("Fig_S2_o", outDir=file.path(ROOT, "outputs")); print(kinshipAtacSnparray); dev.off()
+  {
+    kinshipAtacSnparray = read.csv(KINSHIP_ATACSEQ_SNPPARRAY)
+    z = kinshipAtacSnparray
+    z$ID1x = sapply(z$ID2, function(x) {
+      xx = strsplit(x, "_")[[1]]
+      paste0(xx[2:length(xx)], collapse="_")
+    })
+    z = z[(z$ID1x %in% qcAtac$ID),]
+    z = z[!(is.na(z$samePerson)),]
+    z$`Same person`= ordered(ifelse(z$samePerson, "yes", "no"), levels=c("yes", "no"))
+    kinshipAtacSnparray = ggplot(z, aes(Kinship)) + scale_color_manual(name="Same person", labels=c("yes", "no"), values = c(npgList[["NEURON"]], npgList[["GLIA"]])) + 
+      theme_bw() + scale_x_continuous(expand = c(0, 0)) + scale_y_continuous(expand = c(0, 0)) +
+      geom_density(alpha=0, aes(color=`Same person`, fill=`Same person`), size=1) + 
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.4, 0.85),
+            axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + coord_equal() + xlab("Kinship score") + ylab("Density")
+    mpdf("Fig_S2_o", outDir=file.path(ROOT, "outputs")); print(kinshipAtacSnparray); dev.off()
+  }
 }
 
 ####################################################################################################
@@ -602,8 +593,8 @@ library(UpSetR)
   postCovVarPart_rnaseq = postCovVarPart_rnaseq[, c(setdiff(colnames(postCovVarPart_rnaseq)[order(colMeans(postCovVarPart_rnaseq), decreasing = TRUE)], "Residuals"), "Residuals")]
   postCovVarPart_atacseq = postCovVarPart_atacseq[, c(setdiff(colnames(postCovVarPart_atacseq)[order(colMeans(postCovVarPart_atacseq), decreasing = TRUE)], "Residuals"), "Residuals")]
   
-  mpdf("Fig_S3_a_rnaseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); plotVarPart(postCovVarPart_rnaseq); dev.off()
-  mpdf("Fig_S3_a_atacseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); plotVarPart(postCovVarPart_atacseq); dev.off()
+  mpdf("Fig_S3_a_rnaseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); print(plotVarPart(postCovVarPart_rnaseq)); dev.off()
+  mpdf("Fig_S3_a_atacseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); print(plotVarPart(postCovVarPart_atacseq)); dev.off()
   
   rna_tab = data.frame(
     Variable = colnames(preCovVarPart_rnaseq),
@@ -624,88 +615,91 @@ library(UpSetR)
 
 {
   # Fig. S4a :: Correlation of log2(cpm+1) counts between our ATAC-seq data and external ATAC-seq data from 4 cell types from the prefrontal cortex (Hauberg et al 2020)
-  ggom_allInfo = read.csv(METADATA_HAUBERG_2020)
-  ggom_countMatrix = readRDS(GEXPR_HAUBERG_2020)
-  ggom_qcPeakAnno = readRDS(PEAKS_HAUBERG_2020)
-  ggom_qcPeakAnno$PeakID = qcPeakAnno$PeakID
-  rownames(ggom_qcPeakAnno) = qcPeakAnno$PeakID
-  
-  # Load metadata from Hauberg et al 2020
-  rownames(ggom_allInfo) = ggom_allInfo$ID
-  ggom_allInfo = ggom_allInfo[order(ggom_allInfo$ID),]
-  
-  # Load count matrix from Hauberg et al 2020
-  rownames(ggom_qcPeakAnno) = qcPeakAnno$PeakID
-  ggom_countMatrix = ggom_countMatrix[rownames(atacseq_countMatrixRaw),]
-  outDir = file.path(ROOT, "tmp")
-  dir.create(outDir)
-  geneNormObj = getGeneFilteredGeneExprMatrix(ggom_countMatrix, ggom_allInfo, ggom_qcPeakAnno[rownames(ggom_qcPeakAnno) %in% rownames(ggom_countMatrix),], plotName="PRE_COVS", geneTssPeakMapping=NULL,housekeepingPeakInfo=NULL, MIN_GENE_CPM=0, MIN_SAMPLE_PERCENT_WITH_MIN_GENE_CPM=0, calcNormFactors.method="TMM")
-  colnames(geneNormObj$dgeObj) = gsub("^X", "", colnames(geneNormObj$dgeObj))
-  
-  initialDgeObj = geneNormObj$dgeObj
-  geneNormObj$dgeObj = NULL
-  initialVoomObj = voom(initialDgeObj, design=NULL, plot=F)
-  
-  currentDf = do.call("cbind.data.frame", lapply(tolower(unique(qcAtac$cell_subtype)), function(ctype) {
-    rowMeans(log2(2^atacseq_countMatrixAdj[,qcAtac[tolower(qcAtac$cell_subtype) == ctype,"ID"]]+1))
-  }))
-  colnames(currentDf) = paste0("current_", tolower(unique(qcAtac$cell_subtype)))
-  ggomDf = do.call("cbind.data.frame", lapply(tolower(unique(ggom_allInfo$cell_subtype)), function(ctype) {
-    rowMeans(log2(2^initialVoomObj$E[,ggom_allInfo[tolower(ggom_allInfo$cell_subtype)==ctype,"ID"]]+1))
-  }))
-  colnames(ggomDf) = paste0("ggom_", tolower(unique(qcAtac$cell_subtype)))
-  
-  for(ctype in tolower(unique(qcAtac$cell_subtype))) {
-    for(ctype2 in tolower(unique(qcAtac$cell_subtype))) {
-      df = cbind.data.frame(currentDf, ggomDf)
-      df$density = get_density(df[,paste0("current_", ctype)], df[,paste0("ggom_", ctype2)], n = 100)
-      axisMax = round(max(min(abs(df[,paste0("current_", ctype)])),max(abs(df[,paste0("ggom_", ctype2)]))+0.5))
-      pearson = cor.test(df[,paste0("current_", ctype)], df[,paste0("ggom_", ctype2)], method="pearson")
-      spearman = cor.test(df[,paste0("current_", ctype)], df[,paste0("ggom_", ctype2)], method="spearman")
-      print((paste0("> ", ctype, " / ", ctype2, " :: Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3))))
-      
-      densityScatter_current_ggom = ggplot(df, aes_string(x=paste0("current_", ctype), y=paste0("ggom_", ctype2))) + geom_point(aes_string(x=paste0("current_", ctype), y=paste0("ggom_", ctype2), color="density")) + scale_color_viridis() +
-        coord_equal() + theme_classic() + theme(axis.text.y=element_text(colour="black")) + 
-        xlab(paste0("log2(cpm+1); this study - ", ctype)) + ylab(paste0("log2(cpm+1); GGOM - ", ctype2)) + xlim(c(0,axisMax)) + ylim(c(0,axisMax)) +
-        geom_abline(intercept=0, slope=1, color="gray", linetype="dashed") + geom_hline(yintercept=0, color="gray", linetype="dashed") + geom_smooth(method=lm, se=FALSE) +
-        ggtitle(paste0("Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3)))
-      mpdf(paste0("Fig_S4_hauberg__", ctype, "__", ctype2), outDir=file.path(ROOT, "outputs")); print(densityScatter_current_ggom); dev.off()
-    }
-  }  
+  {
+    ggom_allInfo = read.csv(METADATA_HAUBERG_2020)
+    ggom_countMatrix = readRDS(GEXPR_HAUBERG_2020)
+    ggom_qcPeakAnno = readRDS(PEAKS_HAUBERG_2020)
+    ggom_qcPeakAnno$PeakID = qcPeakAnno$PeakID
+    rownames(ggom_qcPeakAnno) = qcPeakAnno$PeakID
+    
+    # Load metadata from Hauberg et al 2020
+    rownames(ggom_allInfo) = ggom_allInfo$ID
+    ggom_allInfo = ggom_allInfo[order(ggom_allInfo$ID),]
+    
+    # Load count matrix from Hauberg et al 2020
+    rownames(ggom_qcPeakAnno) = qcPeakAnno$PeakID
+    ggom_countMatrix = ggom_countMatrix[rownames(atacseq_countMatrixRaw),]
+    outDir = file.path(ROOT, "tmp")
+    dir.create(outDir)
+    geneNormObj = getGeneFilteredGeneExprMatrix(ggom_countMatrix, ggom_allInfo, ggom_qcPeakAnno[rownames(ggom_qcPeakAnno) %in% rownames(ggom_countMatrix),], plotName="PRE_COVS", geneTssPeakMapping=NULL,housekeepingPeakInfo=NULL, MIN_GENE_CPM=0, MIN_SAMPLE_PERCENT_WITH_MIN_GENE_CPM=0, calcNormFactors.method="TMM")
+    colnames(geneNormObj$dgeObj) = gsub("^X", "", colnames(geneNormObj$dgeObj))
+    
+    initialDgeObj = geneNormObj$dgeObj
+    geneNormObj$dgeObj = NULL
+    initialVoomObj = voom(initialDgeObj, design=NULL, plot=F)
+    
+    currentDf = do.call("cbind.data.frame", lapply(tolower(unique(qcAtac$cell_subtype)), function(ctype) {
+      rowMeans(log2(2^atacseq_countMatrixAdj[,qcAtac[tolower(qcAtac$cell_subtype) == ctype,"ID"]]+1))
+    }))
+    colnames(currentDf) = paste0("current_", tolower(unique(qcAtac$cell_subtype)))
+    ggomDf = do.call("cbind.data.frame", lapply(tolower(unique(ggom_allInfo$cell_subtype)), function(ctype) {
+      rowMeans(log2(2^initialVoomObj$E[,ggom_allInfo[tolower(ggom_allInfo$cell_subtype)==ctype,"ID"]]+1))
+    }))
+    colnames(ggomDf) = paste0("ggom_", tolower(unique(qcAtac$cell_subtype)))
+    
+    for(ctype in tolower(unique(qcAtac$cell_subtype))) {
+      for(ctype2 in tolower(unique(qcAtac$cell_subtype))) {
+        df = cbind.data.frame(currentDf, ggomDf)
+        df$density = get_density(df[,paste0("current_", ctype)], df[,paste0("ggom_", ctype2)], n = 100)
+        axisMax = round(max(min(abs(df[,paste0("current_", ctype)])),max(abs(df[,paste0("ggom_", ctype2)]))+0.5))
+        pearson = cor.test(df[,paste0("current_", ctype)], df[,paste0("ggom_", ctype2)], method="pearson")
+        spearman = cor.test(df[,paste0("current_", ctype)], df[,paste0("ggom_", ctype2)], method="spearman")
+        print((paste0("> ", ctype, " / ", ctype2, " :: Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3))))
+        
+        densityScatter_current_ggom = ggplot(df, aes_string(x=paste0("current_", ctype), y=paste0("ggom_", ctype2))) + geom_point(aes_string(x=paste0("current_", ctype), y=paste0("ggom_", ctype2), color="density")) + scale_color_viridis() +
+          coord_equal() + theme_classic() + theme(axis.text.y=element_text(colour="black")) + 
+          xlab(paste0("log2(cpm+1); this study - ", ctype)) + ylab(paste0("log2(cpm+1); GGOM - ", ctype2)) + xlim(c(0,axisMax)) + ylim(c(0,axisMax)) +
+          geom_abline(intercept=0, slope=1, color="gray", linetype="dashed") + geom_hline(yintercept=0, color="gray", linetype="dashed") + geom_smooth(method=lm, se=FALSE) +
+          ggtitle(paste0("Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3)))
+        mpdf(paste0("Fig_S4_hauberg__", ctype, "__", ctype2), outDir=file.path(ROOT, "outputs")); print(densityScatter_current_ggom); dev.off()
+      }
+    }  
+  }
   
   #####
   # Fig. S4b :: Correlation of log2(cpm+1) counts between our RNA-seq data and external RNA-seq dataset of 3 cell types from parahippocampal gyrus (Coleman et al 2023)
-  phg_allInfo = read.csv(METADATA_COLEMAN_2023)
-  phg_initDgeObj = readRDS("/sc/arion/projects/CommonMind/roussp01a/MOLECULAR_PROFILING/tmp/phg_rnaseqInitialDgeObj.RDS")
-  phg_initVoomObj = readRDS(GEXPR_COLEMAN_2023)
-  
-  currentDf = do.call("cbind.data.frame", lapply(tolower(unique(qcRna$cell_subtype)), function(ctype) {
-    rowMeans(log2(2^rnaseq_countMatrixAdj[,qcRna[tolower(qcRna$cell_subtype) == ctype,"ID"]]+1))
-  }))
-  colnames(currentDf) = paste0("current_", tolower(unique(qcRna$cell_subtype)))
-  phgDf = do.call("cbind.data.frame", lapply(tolower(unique(phg_allInfo$cell_subtype)), function(ctype) {
-    rowMeans(log2(2^phg_initVoomObj$E[,phg_allInfo[tolower(phg_allInfo$cell_subtype)==ctype,"ID"]]+1))
-  }))
-  colnames(phgDf) = paste0("phg_", tolower(unique(unique(phg_allInfo$cell_subtype))))
-  
-  isectGenes = intersect(rownames(currentDf), rownames(phgDf))
-  dfx = cbind.data.frame(currentDf[isectGenes,], phgDf[isectGenes,])
-  for(ctype in tolower(unique(qcRna$cell_subtype))) {
-    for(ctype2 in tolower(unique(qcRna$cell_subtype))) {
-      ctype2 = ifelse(ctype2 == "gaba", "neuron", ifelse(ctype2 == "glu", "neuron", ifelse(ctype2 == "olig", "oligodendrocytes", ifelse(ctype2 == "mgas", "astroandmicroglia", NA))))
-      df = dfx
-      df$density = get_density(df[,paste0("current_", ctype)], df[,paste0("phg_", ctype2)], n = 100)
-      axisMax = round(max(min(abs(df[,paste0("current_", ctype)])),max(abs(df[,paste0("phg_", ctype2)]))+0.5))
-      pearson = cor.test(df[,paste0("current_", ctype)], df[,paste0("phg_", ctype2)], method="pearson")
-      spearman = cor.test(df[,paste0("current_", ctype)], df[,paste0("phg_", ctype2)], method="spearman")
-      print((paste0("> ", ctype, " / ", ctype2, " :: Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3))))
-      
-      densityScatter_current_phg = ggplot(df, aes_string(x=paste0("current_", ctype), y=paste0("phg_", ctype2))) + geom_point(aes_string(x=paste0("current_", ctype), y=paste0("phg_", ctype2), color="density")) + scale_color_viridis() +
-        coord_equal() + theme_classic() + theme(axis.text.y=element_text(colour="black")) + 
-        xlab(paste0("log2(cpm+1); this study - ", ctype2)) + ylab(paste0("log2(cpm+1); PHG - ", ctype2)) + xlim(c(0,axisMax)) + ylim(c(0,axisMax)) +
-        geom_abline(intercept=0, slope=1, color="gray", linetype="dashed") + geom_hline(yintercept=0, color="gray", linetype="dashed") + geom_smooth(method=lm, se=FALSE) +
-        ggtitle(paste0("Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3)))
-      mpdf(paste0("Fig_S4_coleman__", ctype, "__", ctype2), outDir=file.path(ROOT, "outputs")); print(densityScatter_current_phg); dev.off()
+  {
+    phg_allInfo = read.csv(METADATA_COLEMAN_2023)
+    phg_initVoomObj = readRDS(GEXPR_COLEMAN_2023)
+    
+    currentDf = do.call("cbind.data.frame", lapply(tolower(unique(qcRna$cell_subtype)), function(ctype) {
+      rowMeans(log2(2^rnaseq_countMatrixAdj[,qcRna[tolower(qcRna$cell_subtype) == ctype,"ID"]]+1))
+    }))
+    colnames(currentDf) = paste0("current_", tolower(unique(qcRna$cell_subtype)))
+    phgDf = do.call("cbind.data.frame", lapply(tolower(unique(phg_allInfo$cell_subtype)), function(ctype) {
+      rowMeans(log2(2^phg_initVoomObj$E[,phg_allInfo[tolower(phg_allInfo$cell_subtype)==ctype,"ID"]]+1))
+    }))
+    colnames(phgDf) = paste0("phg_", tolower(unique(unique(phg_allInfo$cell_subtype))))
+    
+    isectGenes = intersect(rownames(currentDf), rownames(phgDf))
+    dfx = cbind.data.frame(currentDf[isectGenes,], phgDf[isectGenes,])
+    for(ctype in tolower(unique(qcRna$cell_subtype))) {
+      for(ctype2 in tolower(unique(qcRna$cell_subtype))) {
+        ctype2 = ifelse(ctype2 == "gaba", "neuron", ifelse(ctype2 == "glu", "neuron", ifelse(ctype2 == "olig", "oligodendrocytes", ifelse(ctype2 == "mgas", "astroandmicroglia", NA))))
+        df = dfx
+        df$density = get_density(df[,paste0("current_", ctype)], df[,paste0("phg_", ctype2)], n = 100)
+        axisMax = round(max(min(abs(df[,paste0("current_", ctype)])),max(abs(df[,paste0("phg_", ctype2)]))+0.5))
+        pearson = cor.test(df[,paste0("current_", ctype)], df[,paste0("phg_", ctype2)], method="pearson")
+        spearman = cor.test(df[,paste0("current_", ctype)], df[,paste0("phg_", ctype2)], method="spearman")
+        print((paste0("> ", ctype, " / ", ctype2, " :: Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3))))
+        
+        densityScatter_current_phg = ggplot(df, aes_string(x=paste0("current_", ctype), y=paste0("phg_", ctype2))) + geom_point(aes_string(x=paste0("current_", ctype), y=paste0("phg_", ctype2), color="density")) + scale_color_viridis() +
+          coord_equal() + theme_classic() + theme(axis.text.y=element_text(colour="black")) + 
+          xlab(paste0("log2(cpm+1); this study - ", ctype2)) + ylab(paste0("log2(cpm+1); PHG - ", ctype2)) + xlim(c(0,axisMax)) + ylim(c(0,axisMax)) +
+          geom_abline(intercept=0, slope=1, color="gray", linetype="dashed") + geom_hline(yintercept=0, color="gray", linetype="dashed") + geom_smooth(method=lm, se=FALSE) +
+          ggtitle(paste0("Pearson / Spearman = ", round(pearson$estimate, 3), " / ", round(spearman$estimate, 3)))
+        mpdf(paste0("Fig_S4_coleman__", ctype, "__", ctype2), outDir=file.path(ROOT, "outputs")); print(densityScatter_current_phg); dev.off()
+      }
     }
   }
 }
@@ -714,8 +708,6 @@ library(UpSetR)
 ##### FIG. S5 :: COMPARISON OF SIGNAL FOR MARKER GENES IN RNA-SEQ AND PROMOTER OCRS ################
 
 {
-  # Define marker genes and corresponding OCRs
-  CELL_TYPES = c("GABA", "GLU", "OLIG", "MGAS")
   CELL_MARKER_GENES = list(
     "GABA" = c("PVALB", "SST", "SLC32A1", "DLX6"), 
     "GLU" = c("NEUROD6", "BDNF", "TBR1", "SLC17A6"),
@@ -730,86 +722,92 @@ library(UpSetR)
   )
   
   ###
-  # Plot gene expression markers
-  qcRna$cell_subtype = toupper(qcRna$cell_subtype)
-  
-  CELL_MARKER_GENES_ENSEMBL = lapply(CELL_MARKER_GENES, symbol_to_ensembl, anno_df = gtf) # Convert marker gene names to Ensembl gene identifiers
-  
-  genes_to_plot = unique(unlist(CELL_MARKER_GENES_ENSEMBL)) |> intersect(rownames(rnaseq_expr))
-  samples_all = qcRna %>% filter(cell_subtype %in% CELL_TYPES) %>% pull(ID)
-  expr_sub = rnaseq_expr[genes_to_plot, samples_all, drop = FALSE]
-  
-  plot_df = as.data.frame(expr_sub) %>%
-    tibble::rownames_to_column("gene") %>%
-    pivot_longer(-gene, names_to = "sample", values_to = "expr") %>%
-    left_join(qcRna[, c("ID","Dx","cell_subtype")], by = c("sample" = "ID")) %>%
-    mutate(
-      cell_subtype = factor(toupper(cell_subtype), levels = CELL_TYPES),
-      Dx = factor(Dx, levels = c("Control","SCZ")),
-      group = factor(paste0(cell_subtype, "_", Dx),
-                     levels = c("GABA_Control","GABA_SCZ",
-                                "GLU_Control","GLU_SCZ",
-                                "OLIG_Control","OLIG_SCZ",
-                                "MGAS_Control","MGAS_SCZ")),
-      gene_symbol = unlist(CELL_MARKER_GENES)[match(gene, unlist(CELL_MARKER_GENES_ENSEMBL))],
-      gene_symbol = ordered(gene_symbol, levels = unlist(CELL_MARKER_GENES)))
-  
-  final_plot_facet = ggplot(plot_df, aes(x = group, y = expr, fill = cell_subtype)) +
-    geom_boxplot(width = 0.5, outlier.shape = NA, color = "black", size = 0.3) +
-    scale_fill_manual(values = c("GABA" = npgList$GABA, "GLU"  = npgList$GLU, "OLIG" = npgList$OLIG, "MGAS" = npgList$MGAS)) +
-    facet_wrap(~ gene_symbol, ncol = 4, scales = "free_y") +
-    theme_minimal(base_size = 9) +
-    theme(
-      axis.title.x = element_blank(),
-      axis.title.y = element_text(size = 9),
-      axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
-      axis.text.y  = element_text(size = 8),
-      legend.position = "none",
-      strip.text = element_text(size = 9, face = "bold")
-    ) +
-    labs(y = "log2(expr+1)")
-  
-  mpdf(paste0("Fig_S5a_rnaseq"), outDir=file.path(ROOT, "outputs")); print(final_plot_facet); dev.off()
+  # Fig. S5a: Comparison of signal for marker genes in RNA-seq
+  {
+    qcRna$cell_subtype = toupper(qcRna$cell_subtype)
+    
+    CELL_MARKER_GENES_ENSEMBL = lapply(CELL_MARKER_GENES, symbol_to_ensembl, anno_df = gtf) # Convert marker gene names to Ensembl gene identifiers
+    
+    rnaseq_expr = rnaseq_countMatrixResiCell
+    genes_to_plot = unique(unlist(CELL_MARKER_GENES_ENSEMBL)) |> intersect(rownames(rnaseq_expr))
+    samples_all = qcRna %>% filter(cell_subtype %in% CELL_TYPES) %>% pull(ID)
+    expr_sub = rnaseq_expr[genes_to_plot, samples_all, drop = FALSE]
+    
+    plot_df = as.data.frame(expr_sub) %>%
+      tibble::rownames_to_column("gene") %>%
+      pivot_longer(-gene, names_to = "sample", values_to = "expr") %>%
+      left_join(qcRna[, c("ID","Dx","cell_subtype")], by = c("sample" = "ID")) %>%
+      mutate(
+        cell_subtype = factor(toupper(cell_subtype), levels = CELL_TYPES),
+        Dx = factor(Dx, levels = c("Control","SCZ")),
+        group = factor(paste0(cell_subtype, "_", Dx),
+                       levels = c("GABA_Control","GABA_SCZ",
+                                  "GLU_Control","GLU_SCZ",
+                                  "OLIG_Control","OLIG_SCZ",
+                                  "MGAS_Control","MGAS_SCZ")),
+        gene_symbol = unlist(CELL_MARKER_GENES)[match(gene, unlist(CELL_MARKER_GENES_ENSEMBL))],
+        gene_symbol = ordered(gene_symbol, levels = unlist(CELL_MARKER_GENES)))
+    
+    final_plot_facet = ggplot(plot_df, aes(x = group, y = expr, fill = cell_subtype)) +
+      geom_boxplot(width = 0.5, outlier.shape = NA, color = "black", size = 0.3) +
+      scale_fill_manual(values = c("GABA" = npgList$GABA, "GLU"  = npgList$GLU, "OLIG" = npgList$OLIG, "MGAS" = npgList$MGAS)) +
+      facet_wrap(~ gene_symbol, ncol = 4, scales = "free_y") +
+      theme_minimal(base_size = 9) +
+      theme(
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 9),
+        axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
+        axis.text.y  = element_text(size = 8),
+        legend.position = "none",
+        strip.text = element_text(size = 9, face = "bold")
+      ) +
+      labs(y = "log2(expr+1)")
+    
+    mpdf(paste0("Fig_S5a_rnaseq"), outDir=file.path(ROOT, "outputs")); print(final_plot_facet); dev.off()
+  }
   
   ###
-  # Plot chromatin accessibility (peak) markers
-  qcAtac$cell_subtype = gsub("GABAergic", "GABA", gsub("glutamatergic", "GLU", gsub("oligodendrocytes", "OLIG", gsub("microgliaAndAstrocytes", "MGAS", qcAtac$cell_subtype))))
-  
-  peaks_to_plot = unique(unlist(CELL_MARKER_PROMOTERS)) |> intersect(rownames(atacseq_expr))
-  samples_all = qcAtac %>% filter(cell_subtype %in% CELL_TYPES) %>% pull(ID)
-  expr_sub = atacseq_expr[unlist(CELL_MARKER_PROMOTERS), samples_all, drop = FALSE]
-  
-  plot_df = as.data.frame(expr_sub) %>%
-    tibble::rownames_to_column("peak") %>%
-    pivot_longer(-peak, names_to = "sample", values_to = "expr") %>%
-    left_join(qcAtac[, c("ID","Dx","cell_subtype")], by = c("sample" = "ID")) %>%
-    mutate(
-      cell_subtype = factor(toupper(cell_subtype), levels = CELL_TYPES),
-      Dx = factor(Dx, levels = c("Control","SCZ")),
-      group = factor(paste0(cell_subtype, "_", Dx),
-                     levels = c("GABA_Control","GABA_SCZ",
-                                "GLU_Control","GLU_SCZ",
-                                "OLIG_Control","OLIG_SCZ",
-                                "MGAS_Control","MGAS_SCZ")),
-      gene_symbol = unlist(CELL_MARKER_GENES)[match(peak, unlist(CELL_MARKER_PROMOTERS))],
-      gene_symbol = ordered(gene_symbol, levels = unlist(CELL_MARKER_GENES)))
-  
-  final_plot_facet = ggplot(plot_df, aes(x = group, y = expr, fill = cell_subtype)) +
-    geom_boxplot(width = 0.5, outlier.shape = NA, color = "black", size = 0.3) +
-    scale_fill_manual(values = c("GABA" = npgList$GABA, "GLU"  = npgList$GLU, "OLIG" = npgList$OLIG, "MGAS" = npgList$MGAS)) +
-    facet_wrap(~ gene_symbol, ncol = 4, scales = "free_y") +
-    theme_minimal(base_size = 9) +
-    theme(
-      axis.title.x = element_blank(),
-      axis.title.y = element_text(size = 9),
-      axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
-      axis.text.y  = element_text(size = 8),
-      legend.position = "none",
-      strip.text = element_text(size = 9, face = "bold")
-    ) +
-    labs(y = "log2(expr+1)")
-  
-  mpdf(paste0("Fig_S5b_atacseq"), outDir=file.path(ROOT, "outputs")); print(final_plot_facet); dev.off()
+  # Comparison of signal for promoter OCRs of marker genes
+  {
+    qcAtac$cell_subtype = gsub("GABAergic", "GABA", gsub("glutamatergic", "GLU", gsub("oligodendrocytes", "OLIG", gsub("microgliaAndAstrocytes", "MGAS", qcAtac$cell_subtype))))
+    
+    atacseq_expr = atacseq_countMatrixResiCell
+    peaks_to_plot = unique(unlist(CELL_MARKER_PROMOTERS)) |> intersect(rownames(atacseq_expr))
+    samples_all = qcAtac %>% filter(cell_subtype %in% CELL_TYPES) %>% pull(ID)
+    expr_sub = atacseq_expr[unlist(CELL_MARKER_PROMOTERS), samples_all, drop = FALSE]
+    
+    plot_df = as.data.frame(expr_sub) %>%
+      tibble::rownames_to_column("peak") %>%
+      pivot_longer(-peak, names_to = "sample", values_to = "expr") %>%
+      left_join(qcAtac[, c("ID","Dx","cell_subtype")], by = c("sample" = "ID")) %>%
+      mutate(
+        cell_subtype = factor(toupper(cell_subtype), levels = CELL_TYPES),
+        Dx = factor(Dx, levels = c("Control","SCZ")),
+        group = factor(paste0(cell_subtype, "_", Dx),
+                       levels = c("GABA_Control","GABA_SCZ",
+                                  "GLU_Control","GLU_SCZ",
+                                  "OLIG_Control","OLIG_SCZ",
+                                  "MGAS_Control","MGAS_SCZ")),
+        gene_symbol = unlist(CELL_MARKER_GENES)[match(peak, unlist(CELL_MARKER_PROMOTERS))],
+        gene_symbol = ordered(gene_symbol, levels = unlist(CELL_MARKER_GENES)))
+    
+    final_plot_facet = ggplot(plot_df, aes(x = group, y = expr, fill = cell_subtype)) +
+      geom_boxplot(width = 0.5, outlier.shape = NA, color = "black", size = 0.3) +
+      scale_fill_manual(values = c("GABA" = npgList$GABA, "GLU"  = npgList$GLU, "OLIG" = npgList$OLIG, "MGAS" = npgList$MGAS)) +
+      facet_wrap(~ gene_symbol, ncol = 4, scales = "free_y") +
+      theme_minimal(base_size = 9) +
+      theme(
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 9),
+        axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
+        axis.text.y  = element_text(size = 8),
+        legend.position = "none",
+        strip.text = element_text(size = 9, face = "bold")
+      ) +
+      labs(y = "log2(expr+1)")
+    
+    mpdf(paste0("Fig_S5b_atacseq"), outDir=file.path(ROOT, "outputs")); print(final_plot_facet); dev.off()
+  }
 }
 
 ####################################################################################################
@@ -817,185 +815,104 @@ library(UpSetR)
 
 {
   #####
-  # RNA-seq
-  plot_df = qcRna %>%
-    dplyr::select(ID, Dx, cell_subtype, deconvolution_GABA, deconvolution_GLU, deconvolution_ODC, deconvolution_AST, deconvolution_MG) %>%
-    tidyr::pivot_longer(
-      cols = dplyr::starts_with("deconvolution_"),
-      names_to = "deconv_target",
-      names_prefix = "deconvolution_",
-      values_to = "estimate"
-    ) %>%
-    dplyr::mutate(
-      cell_subtype  = case_when(
-        cell_subtype == "GABA"  ~ "GABA",
-        cell_subtype == "GLU"  ~ "GLU",
-        cell_subtype == "ODC"  ~ "OLIG",
-        cell_subtype == "OLIG" ~ "OLIG",
-        cell_subtype == "MGAS" ~ "MGAS",
-        TRUE ~ cell_subtype
-      ),
-      cell_subtype  = factor(cell_subtype, levels = CELL_TYPES),
-      deconv_target = factor(toupper(deconv_target),
-                             levels = c("GABA", "GLU", "ODC", "AST", "MG", "OLIG", "MGAS")),
-      Dx = factor(Dx, levels = c("Control","SCZ")),
-      group = factor(paste0(deconv_target, "_", Dx),
-                     levels = c("GABA_Control", "GABA_SCZ", "GLU_Control", "GLU_SCZ", "ODC_Control", "ODC_SCZ", "AST_Control", "AST_SCZ", "MG_Control", "MG_SCZ"))
+  # Fig. 6a:  Estimated cell type composition for SCZ case and control samples using dTangle algorithm in RNA-seq
+  {
+    plot_df = qcRna %>%
+      dplyr::select(ID, Dx, cell_subtype, deconvolution_GABA, deconvolution_GLU, deconvolution_ODC, deconvolution_AST, deconvolution_MG) %>%
+      tidyr::pivot_longer(
+        cols = dplyr::starts_with("deconvolution_"),
+        names_to = "deconv_target",
+        names_prefix = "deconvolution_",
+        values_to = "estimate"
+      ) %>%
+      dplyr::mutate(
+        cell_subtype  = case_when(
+          cell_subtype == "GABA"  ~ "GABA",
+          cell_subtype == "GLU"  ~ "GLU",
+          cell_subtype == "ODC"  ~ "OLIG",
+          cell_subtype == "OLIG" ~ "OLIG",
+          cell_subtype == "MGAS" ~ "MGAS",
+          TRUE ~ cell_subtype
+        ),
+        cell_subtype  = factor(cell_subtype, levels = CELL_TYPES),
+        deconv_target = factor(toupper(deconv_target),
+                               levels = c("GABA", "GLU", "ODC", "AST", "MG", "OLIG", "MGAS")),
+        Dx = factor(Dx, levels = c("Control","SCZ")),
+        group = factor(paste0(deconv_target, "_", Dx),
+                       levels = c("GABA_Control", "GABA_SCZ", "GLU_Control", "GLU_SCZ", "ODC_Control", "ODC_SCZ", "AST_Control", "AST_SCZ", "MG_Control", "MG_SCZ"))
+      )
+    
+    make_violin_deconv = function(df, title = NULL) {
+      ggplot(df, aes(x = group, y = estimate, fill = deconv_target)) + # geom_violin(trim = TRUE, scale = "width", color = "gray40", size = 0.3) +
+        geom_boxplot(width = 0.15, outlier.shape = NA, color = "black", size = 0.3) +
+        scale_fill_manual(values = npgList) + coord_cartesian(ylim = c(0, NA)) +
+        theme_minimal(base_size = 9) +
+        theme(
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(size = 9),
+          axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
+          axis.text.y  = element_text(size = 8),
+          legend.position = "none",
+          plot.title = element_text(size = 9, face = "bold", hjust = 0.5)
+        ) +
+        labs(y = "Deconvolution estimate", title = title)
+    }
+    
+    plots_rna = list(
+      make_violin_deconv(filter(plot_df, cell_subtype == "GABA"), "Sorted nuclei: GABA"),
+      make_violin_deconv(filter(plot_df, cell_subtype == "GLU"),  "Sorted nuclei: GLU"),
+      make_violin_deconv(filter(plot_df, cell_subtype == "OLIG"), "Sorted nuclei: OLIG"),
+      make_violin_deconv(filter(plot_df, cell_subtype == "MGAS"), "Sorted nuclei: MGAS")
     )
-  
-  make_violin_deconv <- function(df, title = NULL) {
-    ggplot(df, aes(x = group, y = estimate, fill = deconv_target)) + # geom_violin(trim = TRUE, scale = "width", color = "gray40", size = 0.3) +
-      geom_boxplot(width = 0.15, outlier.shape = NA, color = "black", size = 0.3) +
-      scale_fill_manual(values = npgList) + coord_cartesian(ylim = c(0, NA)) +
-      theme_minimal(base_size = 9) +
-      theme(
-        axis.title.x = element_blank(),
-        axis.title.y = element_text(size = 9),
-        axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
-        axis.text.y  = element_text(size = 8),
-        legend.position = "none",
-        plot.title = element_text(size = 9, face = "bold", hjust = 0.5)
-      ) +
-      labs(y = "Deconvolution estimate", title = title)
+    
+    final_plot = wrap_plots(plots_rna, ncol = 4)
+    mpdf(paste0("Fig_S6a_rnacseq"), outDir=file.path(ROOT, "outputs"), width = 9.5, height = 3); print(final_plot); dev.off()
   }
   
-  plots_rna = list(
-    make_violin_deconv(filter(plot_df, cell_subtype == "GABA"), "Sorted nuclei: GABA"),
-    make_violin_deconv(filter(plot_df, cell_subtype == "GLU"),  "Sorted nuclei: GLU"),
-    make_violin_deconv(filter(plot_df, cell_subtype == "OLIG"), "Sorted nuclei: OLIG"),
-    make_violin_deconv(filter(plot_df, cell_subtype == "MGAS"), "Sorted nuclei: MGAS")
-  )
-  
-  final_plot = wrap_plots(plots_rna, ncol = 4)
-  mpdf(paste0("Fig_S6a_rnacseq"), outDir=file.path(ROOT, "outputs"), width = 9.5, height = 3); print(final_plot); dev.off()
-  
-  #####
-  # ATAC-seq
-  plot_df = qcAtac %>%   # Prepare data for plotting
-    dplyr::select(ID, Dx, cell_subtype, dplyr::starts_with("deconvolution_")) %>%
-    tidyr::pivot_longer(cols = dplyr::starts_with("deconvolution_"), names_to = "deconv_target", names_prefix = "deconvolution_", values_to = "estimate") %>%
-    dplyr::mutate(
-      cell_subtype = factor(toupper(cell_subtype), levels = CELL_TYPES),
-      deconv_target = factor(toupper(deconv_target), levels = CELL_TYPES),
-      Dx = factor(Dx, levels = c("Control","SCZ")),
-      group = factor(paste0(deconv_target, "_", Dx), levels = c("GABA_Control", "GABA_SCZ", "GLU_Control", "GLU_SCZ", "OLIG_Control", "OLIG_SCZ", "MGAS_Control", "MGAS_SCZ")))
-  
-  # Violin + boxplot function
-  make_violin_deconv = function(df, title = NULL) {
-    ggplot(df, aes(x = group, y = estimate, fill = deconv_target)) +
-      #geom_violin(trim = TRUE, scale = "width", color = "gray40", size = 0.3) +
-      geom_boxplot(width = 0.15, outlier.shape = NA, color = "black", size = 0.3) +
-      scale_fill_manual(values = npgList) +
-      theme_minimal(base_size = 9) +
-      theme(
-        axis.title.x = element_blank(),
-        axis.title.y = element_text(size = 9),
-        axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
-        axis.text.y  = element_text(size = 8),
-        legend.position = "none",
-        plot.title = element_text(size = 9, face = "bold", hjust = 0.5)
-      ) +
-      labs(y = "Deconvolution estimate", title = title)
+  # Fig. 6b:  Estimated cell type composition for SCZ case and control samples using dTangle algorithm in ATAC-seq
+  {
+    plot_df = qcAtac %>%   # Prepare data for plotting
+      dplyr::select(ID, Dx, cell_subtype, dplyr::starts_with("deconvolution_")) %>%
+      tidyr::pivot_longer(cols = dplyr::starts_with("deconvolution_"), names_to = "deconv_target", names_prefix = "deconvolution_", values_to = "estimate") %>%
+      dplyr::mutate(
+        cell_subtype = factor(toupper(cell_subtype), levels = CELL_TYPES),
+        deconv_target = factor(toupper(deconv_target), levels = CELL_TYPES),
+        Dx = factor(Dx, levels = c("Control","SCZ")),
+        group = factor(paste0(deconv_target, "_", Dx), levels = c("GABA_Control", "GABA_SCZ", "GLU_Control", "GLU_SCZ", "OLIG_Control", "OLIG_SCZ", "MGAS_Control", "MGAS_SCZ")))
+    
+    # Violin + boxplot function
+    make_violin_deconv = function(df, title = NULL) {
+      ggplot(df, aes(x = group, y = estimate, fill = deconv_target)) +
+        #geom_violin(trim = TRUE, scale = "width", color = "gray40", size = 0.3) +
+        geom_boxplot(width = 0.15, outlier.shape = NA, color = "black", size = 0.3) +
+        scale_fill_manual(values = npgList) +
+        theme_minimal(base_size = 9) +
+        theme(
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(size = 9),
+          axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
+          axis.text.y  = element_text(size = 8),
+          legend.position = "none",
+          plot.title = element_text(size = 9, face = "bold", hjust = 0.5)
+        ) +
+        labs(y = "Deconvolution estimate", title = title)
+    }
+    
+    # Make 4 panels - one per sorted subtype
+    plots_atac = lapply(CELL_TYPES, function(ct) {
+      make_violin_deconv(filter(plot_df, cell_subtype == ct), paste0("Sorted nuclei: ", ct))
+    })
+    
+    # Combine into one grid
+    final_plot = wrap_plots(plots_atac, ncol = 4) + plot_annotation(title = "ATAC-seq: Deconvolution-based cell type composition per sorted population")
+    mpdf(paste0("Fig_S6b_atacseq"), width = 9.5, height = 3, outDir=file.path(ROOT, "outputs")); print(final_plot); dev.off()
   }
-  
-  # Make 4 panels - one per sorted subtype
-  plots_atac = lapply(CELL_TYPES, function(ct) {
-    make_violin_deconv(filter(plot_df, cell_subtype == ct), paste0("Sorted nuclei: ", ct))
-  })
-  
-  # Combine into one grid
-  final_plot = wrap_plots(plots_atac, ncol = 4) + plot_annotation(title = "ATAC-seq: Deconvolution-based cell type composition per sorted population")
-  mpdf(paste0("Fig_S6b_atacseq"), width = 9.5, height = 3, outDir=file.path(ROOT, "outputs")); print(final_plot); dev.off()
-}
-
-{ # Deconvolution plot :: RNA-seq
-  
-  # Define canonical order and palette
-  celltypes <- c("GABA","GLU","OLIG","MGAS")
-  npgList <- list(
-    "GABA"="#66A61E",
-    "GLU" ="#E6AB02",
-    "OLIG"="#E7298A",
-    "AST" ="#7570B3",
-    "MG"  ="#C1BEE2" 
-  )
-  
-  # Standardize subtype labels
-  rnaseqAll$allInfo$cell_subtype = toupper(rnaseqAll$allInfo$cell_subtype)
-  rnaseqAll$allInfo$deconvolution_best <- NULL
-  rnaseqAll$allInfo = allInfo[,!colnames(allInfo) %in% c("deconvolution_Sample")]
-  
-  # Prepare data (keep all five deconv targets)
-  plot_df = rnaseqAll$allInfo %>%
-    dplyr::select(ID, Dx, cell_subtype, dplyr::starts_with("deconvolution_")) %>%
-    tidyr::pivot_longer(
-      cols = dplyr::starts_with("deconvolution_"),
-      names_to = "deconv_target",
-      names_prefix = "deconvolution_",
-      values_to = "estimate"
-    ) %>%
-    dplyr::mutate(
-      cell_subtype  = case_when(
-        cell_subtype == "ODC"  ~ "OLIG",
-        cell_subtype == "OLIG" ~ "OLIG",
-        cell_subtype == "MGAS" ~ "MGAS",
-        TRUE ~ cell_subtype
-      ),
-      cell_subtype  = factor(cell_subtype, levels = celltypes),
-      deconv_target = factor(toupper(deconv_target),
-                             levels = c("GABA","GLU","ODC","AST","MG")),
-      Dx = factor(Dx, levels = c("Control","SCZ")),
-      group = factor(paste0(deconv_target, "_", Dx),
-                     levels = c("GABA_Control","GABA_SCZ",
-                                "GLU_Control","GLU_SCZ",
-                                "ODC_Control","ODC_SCZ",
-                                "AST_Control","AST_SCZ",
-                                "MG_Control","MG_SCZ"))
-    )
-  
-  # ---- Plot function ----
-  make_violin_deconv <- function(df, title = NULL) {
-    ggplot(df, aes(x = group, y = estimate, fill = deconv_target)) +
-      geom_violin(trim = TRUE, scale = "width", color = "gray40", size = 0.3) +
-      geom_boxplot(width = 0.15, outlier.shape = NA, color = "black", size = 0.3) +
-      scale_fill_manual(values = npgList) +
-      theme_minimal(base_size = 9) +
-      theme(
-        axis.title.x = element_blank(),
-        axis.title.y = element_text(size = 9),
-        axis.text.x  = element_text(size = 8, angle = 45, hjust = 1),
-        axis.text.y  = element_text(size = 8),
-        legend.position = "none",
-        plot.title = element_text(size = 9, face = "bold", hjust = 0.5)
-      ) +
-      labs(y = "Deconvolution estimate", title = title)
-  }
-  
-  # ---- Create panels ----
-  plots_rna <- list(
-    make_violin_deconv(filter(plot_df, cell_subtype == "GABA"), "Sorted nuclei: GABA"),
-    make_violin_deconv(filter(plot_df, cell_subtype == "GLU"),  "Sorted nuclei: GLU"),
-    make_violin_deconv(filter(plot_df, cell_subtype == "OLIG"), "Sorted nuclei: OLIG"),
-    make_violin_deconv(filter(plot_df, cell_subtype == "MGAS" &
-                                deconv_target %in% c("ODC","AST","MG")),
-                       "Sorted nuclei: MGAS")
-  )
-  
-  # ---- Combine grid ----
-  final_plot <- wrap_plots(plots_rna, ncol = 2) +
-    plot_annotation(title = "RNA-seq: Deconvolution-based cell type estimates")
-  
-  pdf("~/Desktop/deconv_RNA_4panels_mergedMGAS.pdf", width = 8, height = 6); print(final_plot); dev.off()
-  
-  final_plot
 }
 
 ####################################################################################################
 ##### FIG. S7 :: INTEGRATED CO-EXPRESSION AND CHROMATIN REGULATORY COUPLING ########################
 
 {
-  genMod = new.env(); load(file.path(ROOT, "inputs", "gene_modules.Rdata"), envir=genMod)  # FIXME TODO REMOVE FROM HERE
-  
   # Fig. S7b ::: Distribution of module sizes (number of genes per module) across cell types, illustrating the modular structure of transcriptional organization within each population.
   {
     eigenVectorCorrelSum = do.call("rbind.data.frame", genMod$EIGENCORRELSUM)
@@ -1076,9 +993,9 @@ library(UpSetR)
       scale_y_continuous(labels = percent_format()) +
       theme_classic() +
       labs(
-        y = "Fraction of modules with ≥1 regulatory OCR",
+        y = "Fraction of modules with >=1 regulatory OCR",
         x = NULL,
-        title = "Prevalence of chromatin–transcription coupling"
+        title = "Prevalence of chromatin-transcription coupling"
       )
     mpdf("Fig_S7_d", outDir=file.path(ROOT, "outputs"), width=3, height=3); print(propNonZeroPlot); dev.off()
   }
@@ -1087,9 +1004,9 @@ library(UpSetR)
   # Fig. S7e ::: Rank-ordered distribution of module-regulating OCR counts per module (log scale), demonstrating non-uniformity in the extent of chromatin association across transcriptional programs.
   {
     mpdf("Fig_S7_e", outDir=file.path(ROOT, "outputs"), width=5, height=3)
-    df %>% group_by(ctype) %>% arrange(desc(nSig)) %>% mutate(rank = row_number()) %>%
+    print(df %>% group_by(ctype) %>% arrange(desc(nSig)) %>% mutate(rank = row_number()) %>%
       ggplot(aes(x = rank, y = nSig, color = ctype)) + geom_line() + scale_color_npg() + scale_y_continuous(trans = "log10") +
-      theme_classic() + labs(x = "Module rank (by regulatory OCRs)", y = "nSig (log scale)", title = "A minority of modules account for most regulatory signal")
+      theme_classic() + labs(x = "Module rank (by regulatory OCRs)", y = "nSig (log scale)", title = "A minority of modules account for most regulatory signal"))
     dev.off()
   }
   
@@ -1111,8 +1028,6 @@ library(UpSetR)
 ##### FIG. S8 :: WGCNA MODULE EIGENGENE NETWORK WITHIN EACH CELL TYPE ##############################
 
 {
-  genMod = new.env(); load(file.path(ROOT, "inputs", "gene_modules.Rdata"), envir=genMod)
-  
   for(ctype in c("GABA", "GLU", "OLIG", "MGAS")) {
     MEcor = cor(genMod$MEs_LIST[[ctype]], use = "pairwise.complete.obs")
     hc = hclust(as.dist(1 - abs(MEcor)), method = "average")
@@ -1268,10 +1183,10 @@ library(UpSetR)
   {
     # Load pre-calculated results of variance partitioning (complete analysis in DEG.R and DAC.R)
     preCovVarPart_rnaseq = preCovVarPart_rnaseq[, c(setdiff(colnames(preCovVarPart_rnaseq)[order(colMeans(preCovVarPart_rnaseq), decreasing = TRUE)], "Residuals"), "Residuals")]
-    mpdf("Fig_1_d_rnaseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); plotVarPart(preCovVarPart_rnaseq); dev.off()
+    mpdf("Fig_1_d_rnaseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); print(plotVarPart(preCovVarPart_rnaseq)); dev.off()
     
     preCovVarPart_atacseq = preCovVarPart_atacseq[, c(setdiff(colnames(preCovVarPart_atacseq)[order(colMeans(preCovVarPart_atacseq), decreasing = TRUE)], "Residuals"), "Residuals")]
-    mpdf("Fig_1_d_atacseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); plotVarPart(preCovVarPart_atacseq); dev.off()
+    mpdf("Fig_1_d_atacseq", outDir=file.path(ROOT, "outputs"), width=10, height=5); print(plotVarPart(preCovVarPart_atacseq)); dev.off()
   }
   
   # Fig. 1e: Clustering of samples using gene expression (left) and chromatin accessibility (right) data.
@@ -1353,7 +1268,7 @@ library(UpSetR)
     #####
     # Fig. 2a :: Numbers of differentially accessible OCRs (BH-adjusted P-value < 0.05) stratified by cell type and direction of change
     mpdf("Fig_2_a", outDir=file.path(ROOT, "outputs"));
-    print(ggplot(z,aes(contrast,assayAndRegion),height=40) +
+    print(ggplot(z,aes(contrast,assayAndRegion)) +
             ggtitle("signifHeatMap") +
             scale_y_discrete(expand=c(0, 0)) +
             scale_x_discrete(expand=c(0, 0)) +
@@ -1398,11 +1313,9 @@ library(UpSetR)
     
     # Plot Fig. 2b :: Heritability coefficients for SCZ risk variants across various sets of differentially accessible OCRs, stratified by direction of regulation (upregulated, downregulated, or both) and cell type. 
     fig2b_plot = ggplot(data = ldsc,aes(x = myCoefficient,y = annoName, color=analysisType)) + 
-      geom_vline(xintercept =0, alpha = 0.5, linetype = "dotted") +
+      geom_vline(xintercept = 0, alpha = 0.5, linetype = "dotted") +
       geom_point(show.legend=T) +
-      labs(size="-logP") +
-      colScale +
-      geom_errorbarh(height=0,size=1,aes(xmin = error_left,xmax = error_right,color=analysisType)) +
+      geom_errorbarh(size=1,aes(xmin = error_left,xmax = error_right,color=analysisType)) +
       geom_text(size=5,aes(label=myLabel)) +
       theme_classic() +
       theme(axis.text=element_text(colour="black")) +
@@ -1626,8 +1539,6 @@ library(UpSetR)
 {
   # Fig. 4a: Numbers of differentially expressed genes
   {
-    degAnalysis = new.env(); load(DEG_ANALYSIS, envir=degAnalysis)
-    
     rnaMerged = list(
       "GABAergic neurons" = degAnalysis$dacResults$dac$GABA.SCZ_Control[degAnalysis$dacResults$dac$GABA.SCZ_Control$adj.P.Val<0.05,],
       "Glutamatergic neurons" = degAnalysis$dacResults$dac$GLU.SCZ_Control[degAnalysis$dacResults$dac$GLU.SCZ_Control$adj.P.Val<0.05,],
@@ -1680,7 +1591,7 @@ library(UpSetR)
     #####
     # Fig. 4a :: Numbers of differentially expressed genes (DEGs) per cell type. b, Overlap of DEGs between cell types
     mpdf("Fig_4_a", outDir=file.path(ROOT, "outputs"));
-    print(ggplot(z,aes(contrast,assayAndRegion),height=40) +
+    print(ggplot(z,aes(contrast,assayAndRegion)) +
             ggtitle("signifHeatMap") +
             scale_y_discrete(expand=c(0, 0)) +
             scale_x_discrete(expand=c(0, 0)) +
@@ -1741,12 +1652,12 @@ library(UpSetR)
       dplyr::distinct(name_full) %>% dplyr::pull(name_full)
     
     # Build plotting table:(i) keep only pathways in the union defined above, (ii) re-expand to all (cell type x pathway) combinations, (iii) compute −log10(P) and significance labels
-    df_plot = df %>%
+    df_plot = gseaDegDf %>%
       dplyr::filter(name_full %in% top_pathways) %>%
       dplyr::select(Set, name_full, pval, BH_AdjP) %>%
       dplyr::right_join(
         tidyr::expand_grid(
-          Set       = cell_types,
+          Set       = CELL_TYPES,
           name_full = top_pathways
         ),
         by = c("Set", "name_full")
@@ -1759,7 +1670,7 @@ library(UpSetR)
           pval < 0.05    ~ ".",   # nominally significant
           TRUE           ~ ""
         ),
-        Set = factor(Set, levels = rev(cell_types))
+        Set = factor(Set, levels = rev(CELL_TYPES))
       )
     
     # Order pathways by average significance across cell types
@@ -1778,7 +1689,7 @@ library(UpSetR)
     myPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Greens"), space = "Lab")
     df_plot$Set = factor(df_plot$Set, levels = c("GABA", "GLU", "OLIG", "MGAS"))
     
-    gseaDegPlot <- ggplot(df_plot, aes(x = name_full, y = Set, fill = LogP)) +
+    gseaDegPlot = ggplot(df_plot, aes(x = name_full, y = Set, fill = LogP)) +
       geom_tile(color = "white", linewidth = 0.4) +
       geom_text(aes(label = sig), size = 5, fontface = "bold") +
       scale_fill_gradientn(
@@ -1888,7 +1799,7 @@ library(UpSetR)
     #####
     # Fig. 5a :: Numbers of dysregulated transcripts as well as genes with at least one differentially expressed transcript (FDR < 0.05) stratified by cell type
     mpdf("Fig_5_a", outDir=file.path(ROOT, "outputs"));
-    print(ggplot(z,aes(contrast,assayAndRegion),height=40) +
+    print(ggplot(z,aes(contrast,assayAndRegion)) +
             ggtitle("signifHeatMap") +
             scale_y_discrete(expand=c(0, 0)) +
             scale_x_discrete(expand=c(0, 0)) +
@@ -1949,7 +1860,7 @@ library(UpSetR)
     myPalette = colorRampPalette(RColorBrewer::brewer.pal(9, "Greens"), space = "Lab")
     df_plot$Set = factor(df_plot$Set, levels = CELL_TYPES)
     
-    gseaDetPlot <- ggplot(df_plot, aes(x = name_full, y = Set, fill = LogP)) +
+    gseaDetPlot = ggplot(df_plot, aes(x = name_full, y = Set, fill = LogP)) +
       geom_tile(color = "white", linewidth = 0.4) +
       geom_text(aes(label = sig), size = 5, fontface = "bold") +
       scale_fill_gradientn(
@@ -2029,7 +1940,7 @@ library(UpSetR)
 
 
 ####################################################################################################
-##### FIG. 5 :: CELL-TYPE-SPECIFIC EQTL AND GWAS-EQTL COLOCALIZATION ###############################
+##### FIG. 6 :: CELL-TYPE-SPECIFIC EQTL AND GWAS-EQTL COLOCALIZATION ###############################
 
 {
   # Fig. 6a:  Workflow of cell type imputation relying on the construction of reference matrix from marker genes from this study, per-sample cell type estimation (dtangle) and imputation algorithm (bMIND).
@@ -2045,7 +1956,7 @@ library(UpSetR)
     names(eqtlDf) = paste0(sheet_names, " imputed")
     
     # Customize df for plotting
-    eqtlDf <- bind_rows(lapply(names(eqtlDf), function(ct) {
+    eqtlDf = bind_rows(lapply(names(eqtlDf), function(ct) {
       eqtlDf[[ct]] %>%
         summarise(n = n()) %>%
         mutate(cell_type = ct)
@@ -2068,7 +1979,7 @@ library(UpSetR)
     names(colocDf) = paste0(sheet_names, " imputed")
     
     # Customize df for plotting
-    eqtlColocDf <- bind_rows(lapply(names(colocDf), function(ct) {
+    eqtlColocDf = bind_rows(lapply(names(colocDf), function(ct) {
         colocDf[[ct]] %>%
           summarise(n = n()) %>%
           mutate(cell_type = ct)
@@ -2095,7 +2006,7 @@ library(UpSetR)
     
     upset_input = fromList(coloc_sets)
     
-    set_colors <- c(
+    set_colors = c(
       GLU  = npgList["GLU"],
       GABA = npgList["GABA"],
       MGAS = npgList["MGAS"],

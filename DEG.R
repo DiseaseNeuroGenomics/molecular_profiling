@@ -61,7 +61,7 @@ library(variancePartition)
 }
 
 ########################################################################################
-##### READ COUNT NORMALIZATION (TMM METHOD) & MDS & tSNE & ANALYSIS OF COVARIATES ######
+##### READ COUNT NORMALIZATION (TMM METHOD) & tSNE & ANALYSIS OF COVARIATES ############
 
 {
   # Make edgeR object:
@@ -80,20 +80,6 @@ library(variancePartition)
   mpdf("misc_DEG_voomFirstPlot", outDir=file.path(ROOT, "outputs"))
   initialVoomObj = voom(initialDgeObj, design=NULL, plot=T)
   dev.off()
-  
-  ######
-  ### Plotting MDS
-  {
-    myDist = as.dist(sqrt(1-cor(initialVoomObj$E)^2)) # # Squared distance correlation
-    mdsResults = cmdscale(myDist, k=2, eig=T)
-    colnames(mdsResults$points) = c("Coordinate_1", "Coordinate_2")
-    mdsResults$points = cbind(mdsResults$points, allInfo)
-    
-    mdsPreCovsPlot = ggplot(mdsResults$points, aes(x=Coordinate_1, y=Coordinate_2, shape=Dx, color=cell_subtype_abbreviation)) + geom_point(size=2) + ggtitle("MDS") +
-      coord_fixed() + xlab("Coordinate 1") + ylab("Coordinate 2") + theme_classic() + theme(axis.text=element_text(colour="black"))
-    
-    mpdf("misc_DEG_MDS_preCovs", outDir=file.path(ROOT, "outputs")); print(mdsPreCovsPlot); dev.off()
-  }
   
   ######
   ### Plotting tSNE
@@ -250,20 +236,6 @@ library(variancePartition)
 ##### ADDITIONAL PLOTTING (USING RESIDUALIZED COUNT MATRICES) ##########################
 
 {
-  ######
-  ### Plotting MDS
-  {
-    myDist = as.dist(sqrt(1-cor(count_matrix_residualized_Dx_CellType_kept)^2)) # # Squared distance correlation
-    mdsResults = cmdscale(myDist, k=2, eig=T)
-    colnames(mdsResults$points) = c("Coordinate_1", "Coordinate_2")
-    mdsResults$points = cbind(mdsResults$points, allInfo)
-    
-    mdsPostCovsPlot = ggplot(mdsResults$points, aes(x=Coordinate_1, y=Coordinate_2, shape=Dx, color=cell_subtype_abbreviation)) + geom_point(size=2) + ggtitle("MDS") +
-      coord_fixed() + xlab("Coordinate 1") + ylab("Coordinate 2") + theme_classic() + theme(axis.text=element_text(colour="black"))
-    
-    mpdf("misc_DEG_MDS_postCovs", outDir=file.path(ROOT, "outputs")); print(mdsPostCovsPlot); dev.off()
-  }
-  
   ######
   ### Plotting tSNE
   {

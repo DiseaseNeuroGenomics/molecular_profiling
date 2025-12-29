@@ -58,6 +58,9 @@ library(scales)
   z = local({load(geneSetFile); environment()})
   standardGeneSets = z$standardFisher$standardGeneSets
   pasteNull=function(...){x=list(...); if(any(sapply(x,is.null))){NULL}else{paste(unlist(x),collapse="")}}; #return NULL if any arg is NULL. otherwise paste0
+  
+  # Load helper functions
+  source(file.path(ROOT, "helper_functions.R"))
 }
 
 ################################################################################
@@ -183,7 +186,6 @@ library(scales)
       )
       moduleGeneList = split(geneModuleTable$gene, geneModuleTable$module)
       
-      source(file.path(ROOT, "helper_functions.R"))
       if(DO_GSEA) {
         cellGseaAllWithBg = universalGsea(
           testMethod = "fisher",
@@ -252,7 +254,7 @@ library(scales)
     ###
     # Permutation tests to calculate whether we have significantly more modules (in each cell type) that have more than one OCRs significantly associated with module eigenvector
     {
-      n_perm = 10
+      n_perm = 100
       perm_summary = vector("list", n_perm)
       for (perm in 1:n_perm) {
         print(perm)
@@ -391,12 +393,9 @@ library(scales)
         scale = "none",
         col = colorRampPalette(c("blue", "white", "red"))(100),
         margins = c(8, 8),
-        main = paste0("Eigengene correlation structure: ", CTYPE)
+        main = paste0("Eigengene correlation structure: ", ctype)
       )
       dev.off()
-      
-      MEcor = cor(MEs_LIST$MGAS)
-      diag(MEcor) = NA
 
       me = MEs_LIST[[ctype]]
       names(me) = gsub("^ME", "", names(me))
@@ -494,7 +493,7 @@ library(scales)
       geom_boxplot(width = 0.12, outlier.shape = NA, alpha = 0.5) + scale_fill_npg() +
       scale_y_continuous(labels = percent_format()) + theme_classic() +
       labs(y = "Fraction of regulatory OCRs per module", x = NULL, title = "Strength of chromatin-transcription coupling")
-    mpdf(paste0(outDir, "misc_wgcna_addAtac_strength"), outDir=file.path(ROOT, "outputs"), width=5, height=3); print(strengthPlot); dev.off()
+    mpdf("misc_wgcna_addAtac_strength", outDir=file.path(ROOT, "outputs"), width=5, height=3); print(strengthPlot); dev.off()
     
     strengthPlot2 = ggplot(df, aes(x = ctype, y = fracSig)) +
       geom_boxplot(outlier.shape = NA) +
@@ -506,10 +505,10 @@ library(scales)
         title = "Proportion of module-regulating OCRs by cell type"
       ) +
       scale_y_continuous(labels = scales::percent_format(accuracy = 1))
-    mpdf(paste0("misc_wgcna_addAtac_strength_2"), outDir=file.path(ROOT, "outputs"), width=5, height=3); print(strengthPlot2); dev.off()
+    mpdf("misc_wgcna_addAtac_strength_2", outDir=file.path(ROOT, "outputs"), width=5, height=3); print(strengthPlot2); dev.off()
     
     print("> Medians of module-level proportions of significantly associated OCRs:")
-    df$fracSig = as.numeric(df$fra)
+    df$fracSig = as.numeric(df$fracSig)
     medians = df %>%
       group_by(ctype) %>%
       summarize(med = median(fracSig, na.rm = TRUE))

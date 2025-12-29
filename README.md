@@ -28,6 +28,46 @@ Several panels (Figs. 1a, 3d, 3e, 4c, 6a, and S7a) are schematic illustrations c
 | Fig. S9  | `main.R` | `Fig_S9_*.pdf` | Concordance between differential gene expression results from this study and those from PsychAD).
 | Fig. S10  | `qPCR_validation.R` | `Fig_S10_*.pdf` | Validation of transcript-level RNA-seq findings by RT-qPCR in oligodendrocytes.
 
+## Repository configuration (important)
+
+⚠️ **Required configuration step**
+
+Most analysis scripts in this repository require manual configuration of the ROOT directory, which must point to the local path of the downloaded GitHub repository. This is necessary for correct resolution of input data, intermediate files, and output directories.
+
+In each script, `ROOT` is defined at the very beginning in the `CONFIG` section and is clearly marked with comments such as:
+```
+# !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!!
+ROOT <- "/path/to/MolecularProfiling"
+```
+
+Before running any script, users must update ROOT to their local repository path. Failure to do so will result in missing file or path errors. All scripts assume a consistent directory structure relative to ROOT, including `inputs/`, `outputs/`, and auxiliary resource folders.
+
+## Input data availability and setup (required)
+
+⚠️ **Required data download**
+
+This repository does not ship with the raw or processed input data used for the analyses. Before running any script, the `inputs/` directory must be populated manually by downloading the study data from Synapse. Please download and untar the full contents of the following Synapse folder directly into the `inputs/` directory:
+
+**Synapse ID**: `syn62787384`<br />
+**URL**: https://www.synapse.org/Synapse:syn62787384
+
+After extraction, the directory structure is expected to be:
+```
+MolecularProfiling/
+├── inputs/
+│   ├── <data files and subdirectories from Synapse>
+├── outputs/
+├── main.R
+├── DEG.R
+├── DAC.R
+├── remacor.R
+├── gene_modules.R
+├── qtl_analysis/
+└── helper_functions.R
+```
+
+All analysis scripts assume the **exact filenames and subdirectory structure** provided in the Synapse archive and resolve paths relative to `ROOT/inputs`.
+Failure to download and extract these files correctly will result in missing-file errors and incomplete figure generation.
 
 ## Description of analytical scripts
 

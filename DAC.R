@@ -34,15 +34,6 @@ library(variancePartition)
   my_covarFracCutOff = 0.05
   my_deltaBicCutOff = 2
   
-  # Load helper scripts
-  source(file.path(ROOT, "helper_functions.R"))
-  options(mc.cores=CPU_CORES)
-}
-
-########################################################################################
-##### SELECTION OF COVARIATES USING BAYESIAN INFORMATION CRITERION (BIC) APPROACH ######
-
-{
   ### Initial set of covariates for exploration (ATAC-seq)
   covariateInfo = list(
     isBiologicalNumeric = c("ageOfDeath_scaled", "geno_PC1", "geno_PC2", "geno_PC3", "deconvolution_GABA", "deconvolution_GLU", "deconvolution_OLIG", "deconvolution_MGAS"),
@@ -58,11 +49,16 @@ library(variancePartition)
                            "finalReadCountFrac_scaled", "pbc_scaled", "picard_PERCENT_DUPLICATION_scaled", "star_Average_mapped_length_scaled", "star_Number_of_input_reads_scaled", 
                            "star_Number_of_reads_mapped_to_multiple_loci_scaled", "star_Number_of_reads_mapped_to_too_many_loci_scaled", "star_Uniquely_mapped_reads_number_scaled", "PMI_scaled"),
     isTechnicalFactor = c("Barcode_combination_asFactor", "Illumina_index_1_asFactor", "Illumina_index_2_asFactor", "PCR_date_asFactor", "Pool_asFactor"))
+  
+  
+  # Load helper scripts
+  source(file.path(ROOT, "helper_functions.R"))
+  options(mc.cores=CPU_CORES)
 }
 
 
 ########################################################################################
-##### READ COUNT NORMALIZATION (TMM METHOD) & MDS & tSNE & ANALYSIS OF COVARIATES ######
+##### READ COUNT NORMALIZATION (TMM METHOD) & tSNE & ANALYSIS OF COVARIATES ############
 
 {
   # Make edgeR object:
@@ -81,20 +77,6 @@ library(variancePartition)
   mpdf("misc_DAC_voomFirstPlot", outDir=file.path(ROOT, "outputs"))
   initialVoomObj = voom(initialDgeObj, design=NULL, plot=T)
   dev.off()
-  
-  ######
-  ### Plotting MDS
-  {
-    myDist = as.dist(sqrt(1-cor(initialVoomObj$E)^2)) # # Squared distance correlation
-    mdsResults = cmdscale(myDist, k=2, eig=T)
-    colnames(mdsResults$points) = c("Coordinate_1", "Coordinate_2")
-    mdsResults$points = cbind(mdsResults$points, allInfo)
-    
-    mdsPreCovsPlot = ggplot(mdsResults$points, aes(x=Coordinate_1, y=Coordinate_2, shape=Dx, color=cell_subtype_abbreviation)) + geom_point(size=2) + ggtitle("MDS") +
-      coord_fixed() + xlab("Coordinate 1") + ylab("Coordinate 2") + theme_classic() + theme(axis.text=element_text(colour="black"))
-    
-    mpdf("misc_DAC_MDS_preCovs", outDir=file.path(ROOT, "outputs")); print(mdsPreCovsPlot); dev.off()
-  }
   
   ######
   ### Plotting tSNE
@@ -194,7 +176,6 @@ library(variancePartition)
 
 {
   modelForVarpart = setdiff(c(finalBicModel, "Dx"), "Groups")
-  modelForVarpart = if(cellType =="all") { c(modelForVarpart) } else { modelForVarpart }
   
   varPartPreCovsModel = paste("~", paste(c(sapply(setdiff(c("Dx_asFactor", "cell_subtype_asFactor", finalBicModel), "Groups"), function(covar) ifelse(is.factor(allInfo[,covar]), paste0("(1|", covar,")"), covar)), "(1|Person_ID_asFactor)"), collapse=" + "))
   preCovVarPart = fitExtractVarPartModel(initialVoomObj, varPartPreCovsModel, allInfo, showWarnings=F)
@@ -247,7 +228,7 @@ library(variancePartition)
   saveRDS(count_matrix_residualized_Dx_CellType_kept, file=file.path(ROOT, "outputs", "misc_ATACseq_residualized_Dx_CellType_kept.RDS"))
   
   # Variance partition (using residualized matrix)
-  postCovVarPart = fitExtractVarPartModel(count_matrix_residualized_Dx_CellType_kept, varPartPostCovsModel, allInfo, showWarnings=F)
+  postCovVarPart = fitExtractVarPartModel(count_matrix_residualized_Dx_CellType_kept, varPartPreCovsModel, allInfo, showWarnings=F)
   mpdf("misc_varPart_ATACseq_POST_COVS",width=10,height=5); plotVarPart(postCovVarPart); dev.off()
 }
 
@@ -255,20 +236,6 @@ library(variancePartition)
 ##### ADDITIONAL PLOTTING (USING RESIDUALIZED COUNT MATRICES) ##########################
 
 {
-  ######
-  ### Plotting MDS
-  {
-    myDist = as.dist(sqrt(1-cor(count_matrix_residualized_Dx_CellType_kept)^2)) # # Squared distance correlation
-    mdsResults = cmdscale(myDist, k=2, eig=T)
-    colnames(mdsResults$points) = c("Coordinate_1", "Coordinate_2")
-    mdsResults$points = cbind(mdsResults$points, allInfo)
-    
-    mdsPostCovsPlot = ggplot(mdsResults$points, aes(x=Coordinate_1, y=Coordinate_2, shape=Dx, color=cell_subtype_abbreviation)) + geom_point(size=2) + ggtitle("MDS") +
-      coord_fixed() + xlab("Coordinate 1") + ylab("Coordinate 2") + theme_classic() + theme(axis.text=element_text(colour="black"))
-    
-    mpdf("misc_DAC_MDS_postCovs", outDir=file.path(ROOT, "outputs")); print(mdsPostCovsPlot); dev.off()
-  }
-  
   ######
   ### Plotting tSNE
   {
