@@ -1947,7 +1947,7 @@ library(UpSetR)
     # NOTE: This panel is a manually created schematic produced in graphics software; no analysis code is associated with this figure.
   }
   
-  # Fig. 6b: Bar chart showing the numbers of lead eQTLs per cell type using the bulk data, data from FANS samples and imputed data respectively
+  # Fig. 6b: Bar chart showing the numbers of lead eQTLs per cell type using the imputed data 
   {
     # Read eQTLs
     sheet_names = setdiff(excel_sheets(EQTL), "Description")
@@ -1970,7 +1970,7 @@ library(UpSetR)
     mpdf("Fig_6_b", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(eqtlPlot); dev.off();
   }
   
-  # Fig. 6c: Bar chart showing the numbers of colocalized eQTLs using the bulk data, FANS sample data and imputed data respectively. 
+  # Fig. 6c: Bar chart showing the numbers of colocalized eQTLs using imputed data.
   {
     # Read colocalized cell-type-specific eQTL with SCZ GWAS
     sheet_names = setdiff(excel_sheets(EQTL), "Description")
