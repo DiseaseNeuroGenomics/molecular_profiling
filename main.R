@@ -1816,37 +1816,6 @@ library(UpSetR)
     dev.off()
   }
   
-  # Fig. 5b: MAGMA analysis
-  {
-    # Load precalculated MAGMA results
-    magma = read.csv(MAGMA_REMACOR_GENES)
-    magma = magma[(magma$Trait=="Schizophrenia"),]
-
-    # Prepare df for plotting (calc adj.p-val, adjust labels etc)
-    ldsc = ldscScores[(ldscScores$gwasAcronym %in% SELECTED_TRAITS) & (ldscScores$analysisType %in% c("FDR", "P_05")) & (ldscScores$direction %in% c("up")),]
-    ldsc$gwasAcronym = ordered(ldsc$gwasAcronym, levels=SELECTED_TRAITS)
-    ldsc = ldsc[order(ldsc$gwasAcronym),]
-    ldsc$sumstatName = ordered(ldsc$sumstatName, levels=unique(rev(ldsc$sumstatName)))
-    ldsc$minus_log10_p_regression = -log10(ldsc$p_regression)
-    ldsc$plotLabel = ""
-    ldsc$plotLabel[ldsc$p_regression < 0.05] = "·"
-    ldsc$plotLabel[p.adjust(ldsc$p_regression, method="BH") < 0.05] = "#"
-    plotTextSize = 9
-    
-    # Plot Fig. 5c :: Enrichment of SCZ genes associated with differential transcripts detected by remacor
-    fig5c_plot = ggplot(ldsc, aes(sumstatName, annoName, fill = minus_log10_p_regression)) + geom_tile() + scale_y_discrete(expand = c(0, 0)) + scale_x_discrete(expand = c(0, 0)) + ylab("Trait") + 
-      xlab("Annotation") + 
-      theme_classic(base_size = plotTextSize) + 
-      theme(axis.text = element_text(colour = "black")) + 
-      coord_fixed() + 
-      theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
-      theme(legend.title = element_text(size = 10, face = "bold")) + 
-      geom_tile(aes(fill = minus_log10_p_regression)) + 
-      scale_fill_gradientn(colours = myPalette(100), name = "-logP") + 
-      geom_text(aes(label = plotLabel), size = plotTextSize * 0.55)
-    mpdf("Fig_2_c", outDir=file.path(ROOT, "outputs"), width=7, height=5); print(fig2c_plot); dev.off();
-  }
-  
   # Fig. 5b: Gene set enrichment analysis with top 3 pathways per cell type.
   {
     # Load precalculated DET results
@@ -1907,6 +1876,34 @@ library(UpSetR)
       )
     
     mpdf("Fig_5_b", outDir=file.path(ROOT, "outputs"), width=10, heigh=7); print(gseaDetPlot); dev.off()
+  }
+  
+  
+  # Fig. 5b: MAGMA analysis for genes with SCZ differential transcripts detected by remacor
+  {
+    # Load precalculated MAGMA results
+    magma = read.csv(MAGMA_REMACOR_GENES)
+    magma = magma[(magma$Trait=="Schizophrenia"),]
+    
+    # Prepare df for plotting (calc adj.p-val, adjust labels etc)
+    magma$plotLabel = ""
+    magma$plotLabel[magma$P < 0.05] = "·"
+    magma$plotLabel[magma$FDR < 0.05] = "#"
+    plotTextSize = 9
+    
+    # Plot Fig. 5c :: Enrichment of SCZ genes associated with differential transcripts detected by remacor
+    fig5c_plot = ggplot(magma, aes(Trait, Cell.Type, fill = X.Log_10.P.value.)) + geom_tile() + scale_y_discrete(expand = c(0, 0)) + scale_x_discrete(expand = c(0, 0)) + ylab("Trait") + 
+      xlab("Annotation") + 
+      theme_classic(base_size = plotTextSize) + 
+      theme(axis.text = element_text(colour = "black")) + 
+      coord_fixed() + 
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+      theme(legend.title = element_text(size = 10, face = "bold")) + 
+      geom_tile(aes(fill = X.Log_10.P.value.)) + 
+      scale_fill_gradientn(colours = myPalette(100), name = "-logP") + 
+      geom_text(aes(label = plotLabel), size = plotTextSize * 0.55)
+    fig5c_plot
+    mpdf("Fig_5_c", outDir=file.path(ROOT, "outputs"), width=7, height=5); print(fig5c_plot); dev.off();
   }
   
   # Fig. 5d,f: Fold changes in the expression levels of CACNA1C and TRIM2 in our data
