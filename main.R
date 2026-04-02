@@ -55,6 +55,7 @@ library(UpSetR)
   GSEA_DET_RESULTS = file.path(ROOT, "inputs", "gsea_det.csv")    # Precalculated GSEA on DET
   COLOCALIZED_EQTL_SCZ_GWAS = file.path(ROOT, "inputs", "colocalized_eqtl_scz_gwas.xlsx")  # Cell-specific eQTLs colocalized with SCZ GWAS
   EQTL = file.path(ROOT, "inputs", "eqtl.xlsx")                   # Cell-specific eQTLs
+  MAGMA_REMACOR_GENES = file.path(ROOT, "inputs", "REMACOR_ANALYSIS_MAGMA.csv")    # MAGMA performed on selected traits for genes related to remacor-prioritized transcripts
   
   DEG_ANALYSIS_PSYCHAD_c07x = file.path(ROOT, "inputs", "DEG_Analysis_PsychAD_c07x.Rdata")  # Pre-calculated results for differential SCZ case-control analysis from PsychAD paper (Lee et atl 2025); contrast c07x
   
@@ -1815,6 +1816,37 @@ library(UpSetR)
     dev.off()
   }
   
+  # Fig. 5b: MAGMA analysis
+  {
+    # Load precalculated MAGMA results
+    magma = read.csv(MAGMA_REMACOR_GENES)
+    magma = magma[(magma$Trait=="Schizophrenia"),]
+
+    # Prepare df for plotting (calc adj.p-val, adjust labels etc)
+    ldsc = ldscScores[(ldscScores$gwasAcronym %in% SELECTED_TRAITS) & (ldscScores$analysisType %in% c("FDR", "P_05")) & (ldscScores$direction %in% c("up")),]
+    ldsc$gwasAcronym = ordered(ldsc$gwasAcronym, levels=SELECTED_TRAITS)
+    ldsc = ldsc[order(ldsc$gwasAcronym),]
+    ldsc$sumstatName = ordered(ldsc$sumstatName, levels=unique(rev(ldsc$sumstatName)))
+    ldsc$minus_log10_p_regression = -log10(ldsc$p_regression)
+    ldsc$plotLabel = ""
+    ldsc$plotLabel[ldsc$p_regression < 0.05] = "·"
+    ldsc$plotLabel[p.adjust(ldsc$p_regression, method="BH") < 0.05] = "#"
+    plotTextSize = 9
+    
+    # Plot Fig. 5c :: Enrichment of SCZ genes associated with differential transcripts detected by remacor
+    fig5c_plot = ggplot(ldsc, aes(sumstatName, annoName, fill = minus_log10_p_regression)) + geom_tile() + scale_y_discrete(expand = c(0, 0)) + scale_x_discrete(expand = c(0, 0)) + ylab("Trait") + 
+      xlab("Annotation") + 
+      theme_classic(base_size = plotTextSize) + 
+      theme(axis.text = element_text(colour = "black")) + 
+      coord_fixed() + 
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+      theme(legend.title = element_text(size = 10, face = "bold")) + 
+      geom_tile(aes(fill = minus_log10_p_regression)) + 
+      scale_fill_gradientn(colours = myPalette(100), name = "-logP") + 
+      geom_text(aes(label = plotLabel), size = plotTextSize * 0.55)
+    mpdf("Fig_2_c", outDir=file.path(ROOT, "outputs"), width=7, height=5); print(fig2c_plot); dev.off();
+  }
+  
   # Fig. 5b: Gene set enrichment analysis with top 3 pathways per cell type.
   {
     # Load precalculated DET results
@@ -1877,12 +1909,12 @@ library(UpSetR)
     mpdf("Fig_5_b", outDir=file.path(ROOT, "outputs"), width=10, heigh=7); print(gseaDetPlot); dev.off()
   }
   
-  # Fig. 5c,e: Fold changes in the expression levels of CACNA1C and TRIM2 in our data
+  # Fig. 5d,f: Fold changes in the expression levels of CACNA1C and TRIM2 in our data
   {
     # TODO Rebecca
   }
   
-  # Fig. 5d,f: Comparison with Kozlenkov et al 2023
+  # Fig. 5e,g: Comparison with Kozlenkov et al 2023
   {
     # Load pre-processed data from Kozlenkov et al. 2023
     rnaseqTranscriptEnv = new.env(); load(TRANSCRIPT_ANALYSIS_KOZLENKOV, envir=rnaseqTranscriptEnv)
@@ -1901,7 +1933,7 @@ library(UpSetR)
     trim2_transcripts = trim2_transcripts[trim2_transcripts %in% rownames(mx)]
     
     #####
-    # Fig. 5d: Comparison of ENST00000465278 and ENST00000483136 expression in the study profiling OPC and mature oligodendrocytes (MO) in infants and adults
+    # Fig. 5e: Comparison of ENST00000465278 and ENST00000483136 expression in the study profiling OPC and mature oligodendrocytes (MO) in infants and adults
     cacna1c_exp = do.call("rbind.data.frame", lapply(cacna1c_transcripts, function(transcriptId) {
       unlist(sapply(sampleGroups, function(sGroup) { 
         mean(mx[transcriptId, sGroup])
@@ -1915,10 +1947,10 @@ library(UpSetR)
     
     cacna1c_plot = ggplot(data=cacna1c_exp2[cacna1c_exp2$X1 %in% c("ENST00000483136", "ENST00000465278"),], aes(x=X1, y=value, fill=group)) + geom_boxplot() + labs(title="", x="Transcript ID", y="Expression") + 
       theme_classic() + theme(axis.text.x = element_text(angle = 90))
-    mpdf("Fig_5_d", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(cacna1c_plot); dev.off();
+    mpdf("Fig_5_e", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(cacna1c_plot); dev.off();
     
     #####
-    # Fig. 5f: Comparison of ENST00000338700 and ENST00000460908 expression in the study profiling OPC and MO in infants and adults
+    # Fig. 5g: Comparison of ENST00000338700 and ENST00000460908 expression in the study profiling OPC and MO in infants and adults
     trim2_exp = do.call("rbind.data.frame", lapply(trim2_transcripts, function(transcriptId) {
       unlist(sapply(sampleGroups, function(sGroup) { 
         mean(mx[transcriptId, sGroup])
@@ -1934,7 +1966,7 @@ library(UpSetR)
     trim2_plot = ggplot(data=trim2_exp2[trim2_exp2$X1 %in% c("ENST00000338700", "ENST00000460908"),], aes(x=X1, y=value, fill=group)) + geom_boxplot() + labs(title="", x="Transcript ID", y="Expression") + 
       theme_classic() + theme(axis.text.x = element_text(angle = 90))
     trim2_plot
-    mpdf("Fig_5_f", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(trim2_plot); dev.off();
+    mpdf("Fig_5_g", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(trim2_plot); dev.off();
   }
 }
 
