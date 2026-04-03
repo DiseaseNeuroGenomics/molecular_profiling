@@ -1435,6 +1435,296 @@ library(UpSetR)
     # Write Table TF
     mtsv(table_tf, filename="Table_TF", outDir=file.path(ROOT, "outputs"), myHeader=T)
   }
+  
+  #####
+  # Fig. SX_TF: Cell-type-specific regulatory evidence and TF-target networks for EGR1, KLF5, MEF2C
+  {
+    library(igraph)
+    library(ggraph)
+    library(tidygraph)
+    library(ggrepel)
+    
+    TFS_OF_INTEREST <- c("EGR1", "KLF5", "MEF2C")
+    
+    ctype_long2short <- c(
+      "GABAergic"              = "GABA",
+      "glutamatergic"          = "GLU",
+      "oligodendrocytes"       = "OLIG",
+      "microgliaAndAstrocytes" = "MGAS"
+    )
+    
+    # Cell-type-specific DEG tables (full, unfiltered)
+    deg_table <- list(
+      "GABA" = degAnalysis$dacResults$dac$GABA.SCZ_Control,
+      "GLU"  = degAnalysis$dacResults$dac$GLU.SCZ_Control,
+      "OLIG" = degAnalysis$dacResults$dac$Olig.SCZ_Control,
+      "MGAS" = degAnalysis$dacResults$dac$MgAs.SCZ_Control
+    )
+    
+    # Load TOBIAS EXPRESED object and bestMotifs
+    EXPRESED   <- readRDS(file.path(ROOT, "inputs", "expressed.RData"))
+    bestMotifs <- read.delim(file.path(ROOT, "inputs", "tableGenerated_bestMotifs_hg38.tsv"), stringsAsFactors = FALSE)
+    bestMotifs$TF_NameCustom_trimmed <- gsub("[,/]", "", bestMotifs$TF_NameCustom)
+    bestMotifs$id                    <- paste0(bestMotifs$TF_NameCustom_trimmed, "_", bestMotifs$Motif_ID)
+    rownames(bestMotifs)             <- bestMotifs$tf_ensembl
+    
+    # Load suppTable (Table S5 List 1) produced in the TF analysis script
+    suppTable <- read.csv(file.path(ROOT, "inputs", "TF_enrichment_footprinting.csv"), stringsAsFactors = FALSE)
+    
+    # ------------------------------------------------------------------
+    # STEP 1: tf_context - all rows for the three TFs passing both criteria
+    # ------------------------------------------------------------------
+    tf_context <- suppTable %>%
+      filter(Gene %in% TFS_OF_INTEREST) %>%
+      group_by(Gene) %>%
+      ungroup() %>%
+      select(Gene, Gene_ID, ctype, cat, direction,
+             pc1_corr_pearson, pc1_corr_pearson_pval, adj.P.value)
+    
+    # ------------------------------------------------------------------
+    # STEP 2: get_tf_deg_targets helper
+    # ------------------------------------------------------------------
+    get_tf_deg_targets <- function(tf_gene, tf_gene_id, ctype_long, ctype_s) {
+      motif_id          <- bestMotifs[tf_gene_id, "id"]
+      all_targets       <- EXPRESED[[ctype_long]][[motif_id]]
+      ct_deg_table      <- deg_table[[ctype_s]]
+      targets_in_rnaseq <- all_targets[all_targets %in% rownames(ct_deg_table)]
+      if (length(targets_in_rnaseq) == 0) return(NULL)
+      #target_names <- rnaseq[[ctype_s]]$qcPeakAnno[
+      #  match(targets_in_rnaseq, rnaseq[[ctype_s]]$qcPeakAnno$PeakID), "gene_name"
+      #]
+      logFC   <- ct_deg_table[targets_in_rnaseq, "logFC"]
+      adjPVal <- ct_deg_table[targets_in_rnaseq, "adj.P.Val"]
+      data.frame(
+        target_id   = targets_in_rnaseq,
+        logFC       = logFC,
+        P.Value     = ct_deg_table[targets_in_rnaseq, "P.Value"],
+        adj.P.Val   = adjPVal,
+        is_DEG      = adjPVal < 0.05,
+        DEG_dir     = ifelse(adjPVal < 0.05 & logFC > 0, "up_in_SCZ",
+                             ifelse(adjPVal < 0.05 & logFC < 0, "down_in_SCZ", "not_DEG")),
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    # ------------------------------------------------------------------
+    # STEP 3: Build network_data (one entry per TF x cell type)
+    # ------------------------------------------------------------------
+    network_data <- lapply(1:nrow(tf_context), function(i) {
+      tf      <- tf_context$Gene[i]
+      tf_id   <- tf_context$Gene_ID[i]
+      ctype_l <- tf_context$ctype[i]
+      ctype_s <- ctype_long2short[ctype_l]
+      targets         <- get_tf_deg_targets(tf, tf_id, ctype_l, ctype_s)
+      targets$TF      <- tf
+      targets$ctype   <- ctype_l
+      targets$corr    <- tf_context$pc1_corr_pearson[i]
+      targets
+    })
+    names(network_data) <- paste0(tf_context$Gene, "_",
+                                  ctype_long2short[tf_context$ctype])
+    
+    # ------------------------------------------------------------------
+    # STEP 4: Table S5 List 2
+    # ------------------------------------------------------------------
+    supp_S5 <- do.call("rbind", lapply(1:nrow(tf_context), function(i) {
+      tf_gene  <- tf_context$Gene[i]
+      tf_id    <- tf_context$Gene_ID[i]
+      ctype_l  <- tf_context$ctype[i]
+      ctype_s  <- ctype_long2short[ctype_l]
+      motif_id <- bestMotifs[tf_id, "id"]
+      all_targets       <- EXPRESED[[ctype_l]][[motif_id]]
+      ct_deg_table      <- deg_table[[ctype_s]]
+      targets_in_rnaseq <- all_targets[all_targets %in% rownames(ct_deg_table)]
+      if (length(targets_in_rnaseq) == 0) return(NULL)
+      target_names <- rnaseq[[ctype_s]]$qcPeakAnno[
+        match(targets_in_rnaseq, rnaseq[[ctype_s]]$qcPeakAnno$PeakID), "gene_name"
+      ]
+      logFC   <- ct_deg_table[targets_in_rnaseq, "logFC"]
+      adjPVal <- ct_deg_table[targets_in_rnaseq, "adj.P.Val"]
+      data.frame(
+        TF_gene         = tf_gene,
+        cell_type       = ctype_l,
+        PC1_correlation = round(tf_context$pc1_corr_pearson[i], 3),
+        target_ensembl  = targets_in_rnaseq,
+        target_gene     = target_names,
+        logFC           = logFC,
+        P_value         = ct_deg_table[targets_in_rnaseq, "P.Value"],
+        adj_P_value     = adjPVal,
+        is_DEG          = adjPVal < 0.05,
+        DEG_direction   = ifelse(adjPVal < 0.05 & logFC > 0, "up_in_SCZ",
+                                 ifelse(adjPVal < 0.05 & logFC < 0, "down_in_SCZ", "not_DEG")),
+        stringsAsFactors = FALSE
+      )
+    })) %>%
+      arrange(TF_gene, cell_type, desc(is_DEG), adj_P_value)
+    
+    mtsv(supp_S5,
+         filename = "TableS5_List2_EGR1_KLF5_MEF2C_targets",
+         outDir   = file.path(ROOT, "outputs"),
+         myHeader = TRUE)
+    
+    # ------------------------------------------------------------------
+    # STEP 5: Panel A — joint evidence scatter plots
+    # ------------------------------------------------------------------
+    # Rebuild dfFinal3 from suppTable for the three TFs across all ctypes
+    tfDf_complete <- do.call("rbind", tfList)
+    tfDf_complete$pc1_corr_pearsonAbs <- abs(tfDf_complete$pc1_corr_pearson)
+    tfDf_complete <- tfDf_complete[
+      (tfDf_complete$Direction %in% c("up", "down")) &
+        (!tfDf_complete$Motif.Name %in% blacklistedMotifName), ]
+    
+    tf_joint <- tfDf_complete %>%
+      filter(Gene %in% TFS_OF_INTEREST, !is.na(pc1_corr_pearson)) %>%
+      mutate(
+        motif_enrichment = -log10(P.value),
+        motif_sig        = adj.P.value < 0.05,
+        corr_sig         = pc1_corr_pearson_pval < 0.05,
+        both_sig         = motif_sig & corr_sig,
+        ctype_label      = gsub("GABAergic", "GABA",
+                                gsub("glutamatergic", "GLU",
+                                     gsub("oligodendrocytes", "OLIG",
+                                          gsub("microgliaAndAstrocytes", "MGAS", CellType)))),
+        point_label      = paste0(ctype_label, "\n(", Direction, ")")
+      )
+    
+    panel_A <- lapply(TFS_OF_INTEREST, function(tf) {
+      d <- tf_joint %>% filter(Gene == tf)
+      ggplot(d, aes(x = motif_enrichment, y = pc1_corr_pearson,
+                    colour = both_sig, shape = Direction)) +
+        geom_vline(xintercept = -log10(0.05), linetype = "dashed",
+                   colour = "grey60", linewidth = 0.4) +
+        geom_hline(yintercept = 0, linetype = "dashed",
+                   colour = "grey60", linewidth = 0.4) +
+        geom_point(size = 5, alpha = 0.85) +
+        geom_label_repel(aes(label = point_label),
+                         size = 4, max.overlaps = 20,
+                         label.padding = unit(0.2, "lines")) +
+        scale_colour_manual(
+          values = c("TRUE" = "#2ecc71", "FALSE" = "grey70"),
+          labels = c("TRUE" = "Both criteria met", "FALSE" = "Not prioritized"),
+          name   = NULL
+        ) +
+        scale_shape_manual(values = c("up" = 17, "down" = 25),
+                           name = "DAC direction") +
+        labs(title = tf,
+             x = "Motif enrichment in DACs\n(-log10 HOMER P-value)",
+             y = "TF-target PC1 correlation\n(Pearson r)") +
+        theme_bw(base_size = 14) +
+        theme(plot.title       = element_text(face = "bold", hjust = 0.5, size = 16),
+              legend.position  = "bottom",
+              legend.text      = element_text(size = 12),
+              panel.grid.minor = element_blank())
+    })
+    
+    combined_A <- wrap_plots(panel_A, nrow = 1) +
+      plot_annotation(
+        title = "A  |  Joint evidence for cell-type prioritization",
+        theme = theme(plot.title = element_text(face = "bold", size = 13))
+      )
+    
+    # ------------------------------------------------------------------
+    # STEP 6: Panel B — TF-target network plots
+    # ------------------------------------------------------------------
+    colour_map <- c(
+      "TF"          = "#1a1a2e",
+      "up_in_SCZ"   = "#c0392b",
+      "down_in_SCZ" = "#2980b9",
+      "not_DEG"     = "grey75"
+    )
+    
+    plot_tf_network <- function(key, top_n_targets = 30) {
+      d        <- network_data[[key]]
+      tf       <- unique(d$TF)
+      corr_val <- round(unique(d$corr), 3)
+      
+      n_total_targets <- nrow(d)
+      n_total_DEGs    <- sum(d$is_DEG, na.rm = TRUE)
+      
+      d_plot <- d %>%
+        filter(is_DEG) %>%
+        arrange(desc(abs(logFC))) %>%
+        slice_head(n = top_n_targets) %>%
+        filter(!is.na(target_name))
+      
+      n_shown_DEGs <- nrow(d_plot)
+      
+      edges <- data.frame(from = tf, to = d_plot$target_name)
+      tf_node <- data.frame(
+        name     = tf,
+        DEG_dir  = "TF",
+        neg_logP = NA_real_,
+        logFC    = NA_real_,
+        is_TF    = TRUE
+      )
+      target_nodes <- data.frame(
+        name     = d_plot$target_name,
+        DEG_dir  = d_plot$DEG_dir,
+        neg_logP = -log10(pmax(d_plot$adj.P.Val, 1e-10)),
+        logFC    = d_plot$logFC,
+        is_TF    = FALSE
+      )
+      nodes <- bind_rows(tf_node, target_nodes)
+      g     <- tbl_graph(nodes = nodes, edges = edges, directed = TRUE)
+      
+      ggraph(g, layout = "star", center = tf) +
+        geom_edge_link(alpha = 0.25, colour = "grey50",
+                       arrow   = arrow(length = unit(3, "mm"), type = "closed"),
+                       end_cap = circle(4, "mm")) +
+        geom_node_point(aes(colour = DEG_dir,
+                            size   = ifelse(is_TF, 10, pmax(neg_logP, 0.5))),
+                        show.legend = TRUE) +
+        geom_node_label(aes(label = ifelse(is_TF | DEG_dir != "not_DEG", name, "")),
+                        repel = TRUE, size = 4,
+                        label.padding = unit(0.2, "lines"),
+                        max.overlaps  = 30) +
+        scale_colour_manual(
+          values = colour_map,
+          name   = "DEG status (SCZ vs Control)",
+          labels = c("TF"          = "TF (hub)",
+                     "up_in_SCZ"   = "Up in SCZ",
+                     "down_in_SCZ" = "Down in SCZ",
+                     "not_DEG"     = "Not DEG")
+        ) +
+        scale_size_continuous(name = "-log10(adj.P)", range = c(3, 10)) +
+        labs(
+          title    = paste0(tf, " regulatory network"),
+          subtitle = paste0(
+            "Cell type: ", unique(d$ctype),
+            "  |  PC1 r = ", corr_val,
+            "  |  Tested targets: ", n_total_targets,
+            "  |  DEG targets: ", n_total_DEGs,
+            " (", n_shown_DEGs, " shown, ranked by |logFC|)"
+          )
+        ) +
+        theme_graph(base_family = "sans", base_size = 14) +
+        theme(plot.title      = element_text(face = "bold", size = 16),
+              plot.subtitle   = element_text(size = 11),
+              legend.position = "right",
+              legend.text     = element_text(size = 12),
+              legend.title    = element_text(size = 13, face = "bold"))
+    }
+    
+    network_plots <- lapply(names(network_data), plot_tf_network, top_n_targets = 30)
+    names(network_plots) <- names(network_data)
+    
+    combined_B <- wrap_plots(network_plots, nrow = 1) +
+      plot_annotation(
+        title = "B  |  TF-target networks in prioritized cell types (top 30 DEGs by |logFC|)",
+        theme = theme(plot.title = element_text(face = "bold", size = 13))
+      )
+    
+    # ------------------------------------------------------------------
+    # STEP 7: Save combined supplementary figure
+    # ------------------------------------------------------------------
+    n_networks <- length(network_plots)   # 4 panels if MEF2C has OLIG + MGAS
+    mpdf("Fig_SX_TF",
+         outDir = file.path(ROOT, "outputs"),
+         width  = 10 * n_networks,        # ~10 inches per network panel
+         height = 18)
+    print(combined_A / combined_B + plot_layout(heights = c(1, 2)))
+    dev.off()
+  }
 }
 
 ####################################################################################################
