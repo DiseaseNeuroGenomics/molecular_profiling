@@ -23,10 +23,12 @@ Several panels (Figs. 1a, 3d, 3e, 4c, 6a, and S7a) are schematic illustrations c
 | Fig. S4  | `main.R` | `Fig_S4_*.pdf` | Comparison of our RNA-seq and ATAC-seq data with datasets previously generated using nuclei isolated by FANS.
 | Fig. S5  | `main.R` | `Fig_S5_*.pdf` | Comparison of signal for marker genes in RNA-seq (a) and promoter OCRs of marker genes in ATAC-seq (b) across cell types.
 | Fig. S6  | `main.R` | `Fig_S6_*.pdf` | Estimated cell type composition of SCZ cases and controls using the dTangle algorithm in RNA-seq (a) and ATAC-seq (b).
-| Fig. S7  | `main.R`<br>`gene_modules.R` | `Fig_S7_*.pdf` | Integrated co-expression and chromatin regulatory coupling across cell types.
-| Fig. S8  | `main.R`<br>`gene_modules.R` | `Fig_S8_*.pdf` | WGCNA module eigengene networks within each cell type.
-| Fig. S9  | `main.R` | `Fig_S9_*.pdf` | Concordance between differential gene expression results from this study and those from PsychAD).
-| Fig. S10  | `qPCR_validation.R` | `Fig_S10_*.pdf` | Validation of transcript-level RNA-seq findings by RT-qPCR in oligodendrocytes.
+| Fig. S7  | `main.R` | `Fig_S7_*.pdf` | TF prioritization and representative TF-target networks for EGR1, KLF5, and MEF2C.
+| Fig. S8  | `main.R`<br>`gene_modules.R` | `Fig_S8_*.pdf` | Integrated co-expression and chromatin regulatory coupling across cell types.
+| Fig. S9  | `main.R`<br>`gene_modules.R` | `Fig_S9_*.pdf` | WGCNA module eigengene networks within each cell type.
+| Fig. S10 | `main.R` | `Fig_S10_*.pdf`   | Concordance between differential gene expression results from this study and those from PsychAD).
+| Fig. S11 | `main.R` | `Fig_S11_*.pdf`   | Cross-platform concordance of our FANS transcript-level analysis with single nucleus ONT long-read.
+| Fig. S12 | `qPCR_validation.R` | `Fig_S12_*.pdf` | Validation of transcript-level RNA-seq findings by RT-qPCR in oligodendrocytes.
 
 ## Repository configuration (important)
 
