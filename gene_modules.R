@@ -9,7 +9,7 @@ library(scales)
 ##### CONFIG ###################################################################
 
 {
-  ROOT = "~/Desktop/molecular_profiling/molecular_profiling/" # !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!
+  ROOT = "./molecular_profiling/" # !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!
   QC_ATACSEQ = file.path(ROOT, "inputs", "qc_all_atac.csv")   # Pre-calculated QC metrics for ATAC-seq samples from processing computational pipeline
   QC_RNASEQ = file.path(ROOT, "inputs", "qc_all_rna.csv")     # Pre-calculated QC metrics for RNA-seq samples from processing computational pipeline
   ATACSEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT = file.path(ROOT, "inputs", "atacseq_count_matrix_residualized_Dx_CellType_kept.RDS") # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
@@ -44,7 +44,7 @@ library(scales)
   mpdf = function(x, width=7,height=7, outDir=outDir, onefile=T) eval.parent(substitute({ pdf(paste0(outDir, "/", make.names(x),".pdf"), useDingbats=F, width=width, height=height, onefile=onefile) }))
 
   # Load E-P interactions defined by activity-by-contact (ABC) method
-  abcEnv = new.env(); load(ABC, envir=abcEnv)
+  abcEnv = new.env(); load(ABC, envir=abcEnv)  # FIXME DOUBLE CHECK
   
   # Load all OCRs & differential OCRs
   qcPeakAnno = readRDS(ATACSEQ_PEAKS)

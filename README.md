@@ -29,6 +29,7 @@ Several panels (Figs. 1a, 3d, 3e, 4c, 6a, and S7a) are schematic illustrations c
 | Fig. S10 | `main.R` | `Fig_S10_*.pdf`   | Concordance between differential gene expression results from this study and those from PsychAD).
 | Fig. S11 | `main.R` | `Fig_S11_*.pdf`   | Cross-platform concordance of our FANS transcript-level analysis with single nucleus ONT long-read.
 | Fig. S12 | `qPCR_validation.R` | `Fig_S12_*.pdf` | Validation of transcript-level RNA-seq findings by RT-qPCR in oligodendrocytes.
+| Fig. S13 | `main.R` | `Fig_S13_*.pdf`   | Cross-validated performance of cell-type-specific expression imputation using bMIND.
 
 ## Repository configuration (important)
 

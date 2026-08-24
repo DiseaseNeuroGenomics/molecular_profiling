@@ -20,12 +20,17 @@ library(ChIPseeker)
 library(GenomeInfoDb)
 library(tidyverse)
 library(UpSetR)
+library(edgeR)
+library(igraph)
+library(ggraph)
+library(tidygraph)
+library(ggrepel)
 
 ########################################################################################
 ##### CONFIG ###########################################################################
 
 {
-  ROOT = "~/Desktop/molecular_profiling/molecular_profiling/" # !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!!
+  ROOT = "~/molecular_profiling/" # !!! FIXME: SET TO YOUR CUSTOM DIRECTORY !!!
   
   QC_ATACSEQ = file.path(ROOT, "inputs", "qc_all_atac.csv")  # Pre-calculated QC metrics for ATAC-seq samples from processing computational pipeline
   QC_RNASEQ = file.path(ROOT, "inputs", "qc_all_rna.csv")    # Pre-calculated QC metrics for RNA-seq samples from processing computational pipeline
@@ -37,32 +42,31 @@ library(UpSetR)
   ATACSEQ_COUNT_MATRIX_ADJ = file.path(ROOT, "inputs", "atacseq_count_matrix_adj.RDS")   # Covariate-adjusted read count matrix for ATAC-seq data
   ATACSEQ_COUNT_MATRIX_RESIDUALIZED_CELLTYPE_KEPT = file.path(ROOT, "inputs", "atacseq_count_matrix_residualized_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
   ATACSEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT = file.path(ROOT, "inputs", "atacseq_count_matrix_residualized_Dx_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
-  RNASEQ_GENES = file.path(ROOT, "inputs", "genes_annot.RDS")                            # Gencode & Ensembl gene annotation
   RNASEQ_COUNT_MATRIX_RAW = file.path(ROOT, "inputs", "rnaseq_count_matrix_raw.RDS")     # Raw read count matrix for RNA-seq data
   RNASEQ_COUNT_MATRIX_ADJ = file.path(ROOT, "inputs", "rnaseq_count_matrix_adj.RDS")     # Covariate-adjusted read count matrix for RNA-seq data
   RNASEQ_COUNT_MATRIX_RESIDUALIZED_CELLTYPE_KEPT = file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
   RNASEQ_COUNT_MATRIX_RESIDUALIZED_DX_CELLTYPE_KEPT = file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_Dx_CellType_kept.RDS")   # Count matrix from which the effect of technical covariates were regressed out, but Dx & Cell type effect kept
   TRANSCRIPT_ANALYSIS_KOZLENKOV = file.path(ROOT, "inputs", "transcript_analysis_kozlenkov_2023.Rdata")  # Transcript-level analysis of mature oligodendrocytes and OPCs from adults and infants
+  RNASEQ_SEP_PEAKS = file.path(ROOT, "inputs", "rnaseqSepPeaks.RDS")                     # Definition of OCRs used in the type of analyses in which each cell type was analysed separately
   
   DAC_ANALYSIS = file.path(ROOT, "inputs", "DAC_Analysis.Rdata")  # Pre-calculated results for analysis of differential chromatin accessibility
   DEG_ANALYSIS = file.path(ROOT, "inputs", "DEG_Analysis.Rdata")  # Pre-calculated results for analysis of differential gene expression 
   DET_ANALYSIS = file.path(ROOT, "inputs", "DET_Analysis.Rdata")  # Pre-calculated results for analysis of differential transcript expression 
   REMACOR_ANALYSIS = file.path(ROOT, "inputs", "REMACOR_ANALYSIS.xlsx")
   
-  ABC = file.path(ROOT, "inputs", "abc.RData")                    # Load Enhancer-Promoter interactions detected by ABC method
+  ABC = file.path(ROOT, "inputs", "abc.RData")                     # Load Enhancer-Promoter interactions detected by ABC method
   UBIQUITOUSLY_EXPRESSED_GENES = file.path(ROOT, "inputs", "UbiquitouslyExpressedGenesHG19_EnsemblIDs.txt")
-  GSEA_DEG_RESULTS = file.path(ROOT, "inputs", "gsea_deg.csv")    # Precalculated GSEA on DEG
-  GSEA_DET_RESULTS = file.path(ROOT, "inputs", "gsea_det.csv")    # Precalculated GSEA on DET
+  GSEA_DEG_RESULTS = file.path(ROOT, "inputs", "gsea_deg.csv")     # Precalculated GSEA on DEG
+  GSEA_DET_RESULTS = file.path(ROOT, "inputs", "gsea_det.csv")     # Precalculated GSEA on DET
   COLOCALIZED_EQTL_SCZ_GWAS = file.path(ROOT, "inputs", "colocalized_eqtl_scz_gwas.xlsx")  # Cell-specific eQTLs colocalized with SCZ GWAS
-  EQTL = file.path(ROOT, "inputs", "eqtl.xlsx")                   # Cell-specific eQTLs
+  EQTL = file.path(ROOT, "inputs", "eqtl.xlsx")                    # Cell-specific eQTLs
   MAGMA_REMACOR_GENES = file.path(ROOT, "inputs", "REMACOR_ANALYSIS_MAGMA.csv")    # MAGMA performed on selected traits for genes related to remacor-prioritized transcripts
+  BMIND_SAMPLE_LEVEL_COR = file.path(ROOT, "inputs", "BMIND_reference_sample_level_correlations.csv") # "BMIND sample-level correlations between our FANS and bulk-imputed-to-FANS (using BMINFD)
   
-  DEG_ANALYSIS_PSYCHAD_c07x = file.path(ROOT, "inputs", "DEG_Analysis_PsychAD_c07x.Rdata")  # Pre-calculated results for differential SCZ case-control analysis from PsychAD paper (Lee et atl 2025); contrast c07x
-  
-  METADATA_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_metadata.csv")  # Metadata for samples from Hauberg et al 2020 (dataset used for comparison)
-  GEXPR_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_gExpr.RDS")        # Covariate-adjusted read count matrix for FANS ATAC-seq data from Hauberg et al 2020
-  PEAKS_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_peaks.RDS")        # Peaks called from ATAC-seq data from Hauberg et al 2020
-  
+  METADATA_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_metadata.csv")   # Metadata for samples from Hauberg et al 2020 (dataset used for comparison)
+  GEXPR_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_gExpr.RDS")         # Covariate-adjusted read count matrix for FANS ATAC-seq data from Hauberg et al 2020
+  PEAKS_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_peaks.RDS")         # Peaks called from ATAC-seq data from Hauberg et al 2020
+
   METADATA_COLEMAN_2023 = file.path(ROOT, "inputs", "coleman_2023_metadata.csv")  # Metadata for samples from Coleman et al 2023 (dataset used for comparison)
   GEXPR_COLEMAN_2023 = file.path(ROOT, "inputs", "coleman_2023_gExpr.RDS")        # Covariate-adjuste read count matrix from FANS RNA-seq data from Coleman et al 2023
   
@@ -214,7 +218,13 @@ library(UpSetR)
   gtf$PeakID = sapply(strsplit(as.character(gtf$gene_id), "\\."), "[[", 1)
   gtf = gtf[!duplicated(gtf$PeakID),]
   rownames(gtf) = gtf$PeakID
-  write.csv(gtf, file=file.path(ROOT, "inputs", "rnaseq_genes.csv"), row.names=F)
+  
+  # Definition of "blacklisted motifs that we don't use because there are better alternatives in the results for the same TFs
+  blacklistedMotifName = c("ETS:RUNX(ETS,Runt)/Jurkat-RUNX1-ChIP-Seq(GSE17954)/Homer", "ETS:E-box(ETS,bHLH)/HPC7-Scl-ChIP-Seq(GSE22178)/Homer", "ETS(ETS)/Promoter/Homer", 
+                           "OCT:OCT(POU,Homeobox)/NPC-OCT6-ChIP-Seq(GSE43916)/Homer", "OCT:OCT(POU,Homeobox)/NPC-Brn1-ChIP-Seq(GSE35496)/Homer", "OCT:OCT(POU,Homeobox,IR1)/NPC-Brn2-ChIP-Seq(GSE35496)/Homer", 
+                           "OCT:OCT-short(POU,Homeobox)/NPC-OCT6-ChIP-Seq(GSE43916)/Homer", "RAR:RXR(NR),DR5/ES-RAR-ChIP-Seq(GSE56893)/Homer", "Tcf3(HMG)/mES-Tcf3-ChIP-Seq(GSE11724)/Homer", "E2A(bHLH),near_PU.1/Bcell-PU.1-ChIP-Seq(GSE21512)/Homer",
+                           "Fra2(bZIP)/Striatum-Fra2-ChIP-Seq(GSE43429)/Homer", "RBPJ:Ebox(?,bHLH)/Panc1-Rbpj1-ChIP-Seq(GSE47459)/Homer", "Stat3+il21(Stat)/CD4-Stat3-ChIP-Seq(GSE19198)/Homer", 
+                           "STAT6(Stat)/Macrophage-Stat6-ChIP-Seq(GSE38377)/Homer", "Tcf12(bHLH)/GM12878-Tcf12-ChIP-Seq(GSE32465)/Homer", "THRb(NR)/HepG2-THRb.Flag-ChIP-Seq(Encode)/Homer")
 }
 
 ####################################################################################################
@@ -260,6 +270,9 @@ library(UpSetR)
     "MGAS" = readRDS(file.path(ROOT, "inputs", "rnaseq_count_matrix_residualized_CellType_kept_MGAS.RDS"))
   )
   
+  # Load OCR definitions for version of analyses in which each cell type was processed separately
+  rnaseqSepPeaks = readRDS(RNASEQ_SEP_PEAKS)
+  
   # Load differential analysis results
   degAnalysis = new.env(); load(DEG_ANALYSIS, envir=degAnalysis)
   
@@ -271,6 +284,9 @@ library(UpSetR)
   postCovVarPart_rnaseq = readRDS(file.path(ROOT, "inputs", "postCovVarPart_rnaseq.RDS"))
   preCovVarPart_atacseq = readRDS(file.path(ROOT, "inputs", "preCovVarPart_atacseq.RDS"))
   postCovVarPart_atacseq = readRDS(file.path(ROOT, "inputs", "postCovVarPart_atacseq.RDS"))
+  
+  # Load HOMER & TOBIAS results
+  tfList = readRDS(file.path(ROOT, "inputs", "homer_and_tobias.RDS"))
 }
 
 ####################################################################################################
@@ -295,7 +311,14 @@ library(UpSetR)
     theme_minimal(base_size = 14) + theme(legend.position = "bottom", legend.title = element_blank(), panel.grid.minor = element_blank())
 
   # Plot (pie): Ancestry distribution
-  ancestry_counts = tmpAll %>% filter(Ancestry %in% c("AFR", "AMR", "EUR", "AS")) %>% count(Ancestry) %>% mutate(pct = round(n / sum(n) * 100), label = paste0(pct, "%"))
+  ancestry_counts <- tmpAll %>%
+    dplyr::filter(.data$Ancestry %in% c("AFR", "AMR", "EUR", "AS")) %>%
+    dplyr::group_by(.data$Ancestry) %>%
+    dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
+    dplyr::mutate(
+      pct = round(.data$n / sum(.data$n) * 100),
+      label = paste0(.data$pct, "%")
+    )
   ancestry_colors = c("AFR" = "#E69F00", "AMR" = "#56B4E9", "EUR" = "#009E73", "AS" = "#F0E442")
   ancestryPiePlot = ggplot(ancestry_counts, aes(x = "", y = n, fill = Ancestry)) + geom_bar(stat = "identity", width = 1, color = "black") +
     coord_polar(theta = "y") + geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) + scale_fill_manual(values = ancestry_colors) +
@@ -342,6 +365,35 @@ library(UpSetR)
 ####################################################################################################
 ##### FIG. S2 :: QUALITY CONTROL FOR RNA-SEQ AND ATAC-SEQ DATA #####################################
 
+# Library stats
+{
+  # Fig. S2b
+  qcAtac$Yield_of_nucleiBoolean = qcAtac$Yield_of_nuclei > 75000
+  df75k = ddply(qcAtac, "cell_subtype_abbreviation", summarize, fraction75k = mean(Yield_of_nucleiBoolean, na.rm = TRUE), n = sum(!is.na(Yield_of_nucleiBoolean)))
+  yieldNucleiPlot = ggplot(df75k, aes(x = cell_subtype_abbreviation, y = fraction75k, fill = factor(cell_subtype_abbreviation))) +
+    geom_col(width = 0.75) + scale_fill_brewer(palette = "Set3") + scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
+    labs(x = "", y = "Fraction reaching 75k nuclei") + theme_bw() + theme(
+      aspect.ratio = 1,
+      axis.text.y = element_text(colour = "black"),
+      legend.position = "none"
+    )
+  mpdf("Fig_S2b", outDir=file.path(ROOT, "outputs"), width=12, height=8);  print(yieldNucleiPlot); dev.off()
+  
+  # Fig. S2c
+  kapaConcentrationPlot = ggplot(qcAtac, 
+    aes(x = KAPA_conc_nM_size_adjusted, color = factor(cell_subtype_abbreviation), fill = factor(cell_subtype_abbreviation))) +
+    geom_density(alpha = 0.15, linewidth = 1) + scale_color_brewer(palette = "Set3") + scale_fill_brewer(palette = "Set3") +
+    ylab("Density") + xlab("Kapa concentration") + theme_bw() + theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      aspect.ratio = 1,
+      axis.text = element_text(colour = "black"),
+      legend.title = element_blank()
+    )
+  mpdf("Fig_S2c", outDir=file.path(ROOT, "outputs"), width=12, height=8);  print(kapaConcentrationPlot); dev.off()
+}
+
+# RNA-seq
 {
   qcRna$mergingDesigns = paste0(qcRna$cell_subtype, "_", qcRna$Dx)
   
@@ -383,15 +435,15 @@ library(UpSetR)
     draw_plot(allPlots[["picard_meanGcContent"]],       .00, .33, .33, .33) +
     draw_plot(allPlots[["picard_PERCENT_DUPLICATION"]],     .33, .33, .33, .33) +
     draw_plot(allPlots[["rnaseqc_PCT_INTERGENIC_BASES"]],       .66, .33, .33, .33) +
-    draw_plot_label(c("d", "e", "f", "g", "h", "i"),
+    draw_plot_label(c("h", "i", "j", "k", "l", "m"),
                     c(.00, .33, .66, .00, .33, .66),
                     c(.99, .99, .99, .66, .66, .66),
                     size = 15)
   
-  mpdf("Fig_S2_d_e_f_g_h_i", outDir=file.path(ROOT, "outputs"), width=11, height=11); print(plotQc2); dev.off()
+  mpdf("Fig_S2_h_i_j_k_l_m", outDir=file.path(ROOT, "outputs"), width=11, height=11); print(plotQc2); dev.off()
 
   #####
-  # Fig. S2a :: Median read insert size distribution
+  # Fig. S2e :: Median read insert size distribution
   GABA = cbind.data.frame(unlist(sapply(unique(qcRna[qcRna$cell_subtype=="GABA","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcRna[qcRna$cell_subtype=="GABA","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "GABA")
   colnames(GABA) = c("insertSize", "type")
   GLU = cbind.data.frame(unlist(sapply(unique(qcRna[qcRna$cell_subtype=="GLU","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcRna[qcRna$cell_subtype=="GLU","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "GLU")
@@ -407,10 +459,10 @@ library(UpSetR)
     theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.5, 0.85), 
                        axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) +
     scale_colour_manual(labels=c("GABA neurons", "GLU neurons", "Olig", "Microglia & Astrocytes"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
-  mpdf("Fig_S2_a", outDir=file.path(ROOT, "outputs")); print(histMedianInsertSize); dev.off()
+  mpdf("Fig_S2_e", outDir=file.path(ROOT, "outputs")); print(histMedianInsertSize); dev.off()
   
   #####
-  # Fig. S2b :: Sex check based on measuring the number reads mapped on chromosome Y
+  # Fig. S2f :: Sex check based on measuring the number reads mapped on chromosome Y
   chrY_genes = gtf[(gtf$seqnames == "chrY") & (gtf$PeakID %in% rownames(rnaseq_countMatrixAdj)),]
   chrY_genes = chrY_genes[(chrY_genes$end < 10001 | chrY_genes$start > 2781479) & (chrY_genes$end < 155701383 | chrY_genes$start > 156030895),] # Outside PAR regions
   
@@ -421,9 +473,9 @@ library(UpSetR)
     theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.15, 0.85),
                        axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
     xlab("Number or reads") + ylab("chrY read count") + coord_equal()
-  mpdf("Fig_S2_b", outDir=file.path(ROOT, "outputs")); print(chrYplot); dev.off()
+  mpdf("Fig_S2_f", outDir=file.path(ROOT, "outputs")); print(chrYplot); dev.off()
   
-  #####  Fig. S2c :: Genotype check based on pair-wise comparison of genotypes called from RNA-seq samples with SNP-arrays
+  #####  Fig. S2g :: Genotype check based on pair-wise comparison of genotypes called from RNA-seq samples with SNP-arrays
   kinshipRnaSnparray = read.csv(KINSHIP_RNASEQ_SNPPARRAY)
   z = kinshipRnaSnparray
   z$`Same person`= ordered(ifelse(z$samePerson, "yes", "no"), levels=c("yes", "no"))
@@ -432,12 +484,10 @@ library(UpSetR)
     geom_density(alpha=0, aes(color=`Same person`, fill=`Same person`), size=1) + 
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.4, 0.85),
           axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + coord_equal() + xlab("Kinship score") + ylab("Density")
-  mpdf("Fig_S2_c", outDir=file.path(ROOT, "outputs")); print(kinshipRnaSnparray); dev.off()
+  mpdf("Fig_S2_g", outDir=file.path(ROOT, "outputs")); print(kinshipRnaSnparray); dev.off()
 }
 
-####################################################################################################
-##### FIG. S2 (ATAC-SEQ) / PART II :: QUALITY CONTROL ##############################################
-
+# ATAC-seq
 {
   # Simplify metadata & QC table by "Groups" (combination of cell type & diagnosis status)
   qcAtac$mergingDesigns = paste0(qcAtac$cell_subtype_asFactor, "_", qcAtac$Dx)
@@ -490,10 +540,10 @@ library(UpSetR)
                     c(.99, .99, .99, .66, .66, .66, .33, .33),
                     size = 15)
   
-  mpdf("Fig_S2_p_q_r_s_t_u_v_w", outDir=file.path(ROOT, "outputs"), width=11, height=11); print(plotQc2); dev.off()
+  mpdf("Fig_S2_t_u_v_w_x_y_z", outDir=file.path(ROOT, "outputs"), width=11, height=11); print(plotQc2); dev.off()
   
   #####
-  # Fig. S2j :: Median read insert size distribution
+  # Fig. S2n :: Median read insert size distribution
   {
     gabaergic = cbind.data.frame(unlist(sapply(unique(qcAtac[qcAtac$cell_subtype_asFactor=="GABAergic","insertMetrics_MEDIAN_INSERT_SIZE"]), function(x) rep(x, sum(qcAtac[qcAtac$cell_subtype_asFactor=="GABAergic","insertMetrics_MEDIAN_INSERT_SIZE"]==x)))), "GABAergic")
     colnames(gabaergic) = c("insertSize", "type")
@@ -511,11 +561,11 @@ library(UpSetR)
       theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.5, 0.85), 
                          axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) +
       scale_colour_manual(labels=c("GABA", "GLU", "OLIG", "MGAS"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
-    mpdf("Fig_S2_j", outDir=file.path(ROOT, "outputs")); print(histMedianInsertSize); dev.off()
+    mpdf("Fig_S2_n", outDir=file.path(ROOT, "outputs")); print(histMedianInsertSize); dev.off()
   }
   
   #####
-  # Fig. S2k :: Distance of OCRs from the closest TSS
+  # Fig. S2o :: Distance of OCRs from the closest TSS
   {
     maxDistance = 1E5
     breaksVector = seq(-20,20)*(1E5/20)
@@ -549,22 +599,22 @@ library(UpSetR)
                          axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
       xlab("Distance to TSS [bp]") + ylab("Proportion of OCRs") + coord_equal()  + 
       scale_colour_manual(labels=c("GABA", "GLU", "OLIG", "MGAS"), values=c(npgList$GABA, npgList$GLU, npgList$OLIG, npgList$MGAS))# + xlab("Median insert size [bp]") + ylab("Density")
-    mpdf("Fig_S2_k", outDir=file.path(ROOT, "outputs")); print(histTssDist); dev.off()
+    mpdf("Fig_S2_o", outDir=file.path(ROOT, "outputs")); print(histTssDist); dev.off()
   }
   
   #####
-  # Fig. S2n :: Sex check based on measuring the number reads mapped on OCRs located at chromosome Y (pseudoautosomal regions not counted)
+  # Fig. S2r :: Sex check based on measuring the number reads mapped on OCRs located at chromosome Y (pseudoautosomal regions not counted)
   {
     chrYplot = ggplot(qcAtac, aes(fracReadsInNonBlacklistedPeaks, chryCounts, color=Gender)) + 
       geom_point() + scale_color_manual(name="Sex", labels=c("Female", "Male "), values = c(npgList[["NEURON"]], npgList[["GLIA"]])) +
       theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), aspect.ratio = 1, legend.position = c(0.15, 0.85),
                          axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + 
       xlab("Fraction of OCRs in peaks of open chromatin") + ylab("chrY read count") + coord_equal() 
-    mpdf("Fig_S2_n", outDir=file.path(ROOT, "outputs")); print(chrYplot); dev.off()
+    mpdf("Fig_S2_r", outDir=file.path(ROOT, "outputs")); print(chrYplot); dev.off()
   }
   
   #####
-  # Fig. S2o :: Genotype check based on pair-wise comparison of genotypes called from ATAC-seq samples with SNP-arrays
+  # Fig. S2s :: Genotype check based on pair-wise comparison of genotypes called from ATAC-seq samples with SNP-arrays
   {
     kinshipAtacSnparray = read.csv(KINSHIP_ATACSEQ_SNPPARRAY)
     z = kinshipAtacSnparray
@@ -582,6 +632,18 @@ library(UpSetR)
             axis.text.x = element_text(colour = "black"), axis.text.y = element_text(colour = "black")) + coord_equal() + xlab("Kinship score") + ylab("Density")
     mpdf("Fig_S2_o", outDir=file.path(ROOT, "outputs")); print(kinshipAtacSnparray); dev.off()
   }
+  
+  # Fig. S2d
+  atacLibrarySizePlot = ggplot(qcAtac, aes(x = Library_size_bp_tapestation, color = factor(cell_subtype_abbreviation),
+                                           fill = factor(cell_subtype_abbreviation))) + geom_density(alpha = 0.15, linewidth = 1) + scale_color_brewer(palette = "Set3") +
+    scale_fill_brewer(palette = "Set3") + ylab("Density") + xlab("ATAC library size") + theme_bw() + theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      aspect.ratio = 1,
+      axis.text = element_text(colour = "black"),
+      legend.title = element_blank()
+    )
+  mpdf("Fig_S2d", outDir=file.path(ROOT, "outputs"), width=12, height=8);  print(atacLibrarySizePlot); dev.off()
 }
 
 ####################################################################################################
@@ -630,8 +692,7 @@ library(UpSetR)
     # Load count matrix from Hauberg et al 2020
     rownames(ggom_qcPeakAnno) = qcPeakAnno$PeakID
     ggom_countMatrix = ggom_countMatrix[rownames(atacseq_countMatrixRaw),]
-    outDir = file.path(ROOT, "tmp")
-    dir.create(outDir)
+    outDir = file.path(ROOT, "outputs")
     geneNormObj = getGeneFilteredGeneExprMatrix(ggom_countMatrix, ggom_allInfo, ggom_qcPeakAnno[rownames(ggom_qcPeakAnno) %in% rownames(ggom_countMatrix),], plotName="PRE_COVS", geneTssPeakMapping=NULL,housekeepingPeakInfo=NULL, MIN_GENE_CPM=0, MIN_SAMPLE_PERCENT_WITH_MIN_GENE_CPM=0, calcNormFactors.method="TMM")
     colnames(geneNormObj$dgeObj) = gsub("^X", "", colnames(geneNormObj$dgeObj))
     
@@ -910,11 +971,292 @@ library(UpSetR)
   }
 }
 
+
 ####################################################################################################
-##### FIG. S7 :: INTEGRATED CO-EXPRESSION AND CHROMATIN REGULATORY COUPLING ########################
+##### FIG. S7 :: TF PRIORITIZATION AND REPRESENTATIVE TF-TARGET NETWORKS FOR EGR1, KLF5 AND MEF2C ##
 
 {
-  # Fig. S7b ::: Distribution of module sizes (number of genes per module) across cell types, illustrating the modular structure of transcriptional organization within each population.
+  TFS_OF_INTEREST <- c("EGR1", "KLF5", "MEF2C")
+  
+  ctype_long2short <- c(
+    "GABAergic"              = "GABA",
+    "glutamatergic"          = "GLU",
+    "oligodendrocytes"       = "OLIG",
+    "microgliaAndAstrocytes" = "MGAS"
+  )
+  
+  # Cell-type-specific DEG tables (full, unfiltered)
+  deg_table <- list(
+    "GABA" = degAnalysis$dacResults$dac$GABA.SCZ_Control,
+    "GLU"  = degAnalysis$dacResults$dac$GLU.SCZ_Control,
+    "OLIG" = degAnalysis$dacResults$dac$Olig.SCZ_Control,
+    "MGAS" = degAnalysis$dacResults$dac$MgAs.SCZ_Control
+  )
+  
+  # Load TOBIAS EXPRESED object and bestMotifs
+  EXPRESED   <- readRDS(file.path(ROOT, "inputs", "expressed.RDS"))
+  bestMotifs <- read.delim(file.path(ROOT, "inputs", "tableGenerated_bestMotifs_hg38.tsv"), stringsAsFactors = FALSE)
+  bestMotifs$TF_NameCustom_trimmed <- gsub("[,/]", "", bestMotifs$TF_NameCustom)
+  bestMotifs$id                    <- paste0(bestMotifs$TF_NameCustom_trimmed, "_", bestMotifs$Motif_ID)
+  rownames(bestMotifs)             <- bestMotifs$tf_ensembl
+  
+  # Load suppTable (Table S5 List 1) produced in the TF analysis script
+  suppTable <- read.csv(file.path(ROOT, "inputs", "TF_enrichment_footprinting.csv"), stringsAsFactors = FALSE)
+  
+  # ------------------------------------------------------------------
+  # STEP 1: tf_context - all rows for the three TFs passing both criteria
+  # ------------------------------------------------------------------
+  tf_context <- suppTable %>%
+    filter(Gene %in% TFS_OF_INTEREST) %>%
+    group_by(Gene) %>%
+    ungroup() %>%
+    select(Gene, Gene_ID, ctype, cat, direction,
+           pc1_corr_pearson, pc1_corr_pearson_pval, adj.P.value)
+  
+  # ------------------------------------------------------------------
+  # STEP 2: get_tf_deg_targets helper
+  # ------------------------------------------------------------------
+  get_tf_deg_targets <- function(tf_gene, tf_gene_id, ctype_long, ctype_s) {
+    motif_id          <- bestMotifs[tf_gene_id, "id"]
+    all_targets       <- EXPRESED[[ctype_long]][[motif_id]]
+    ct_deg_table      <- deg_table[[ctype_s]]
+    targets_in_rnaseq <- all_targets[all_targets %in% rownames(ct_deg_table)]
+    if (length(targets_in_rnaseq) == 0) return(NULL)
+    targets_name_in_rnaseq <- rnaseqSepPeaks[[ctype_s]]$qcPeakAnno[match(targets_in_rnaseq, rnaseqSepPeaks[[ctype_s]]$qcPeakAnno$PeakID), "gene_name"]
+    logFC   <- ct_deg_table[targets_in_rnaseq, "logFC"]
+    adjPVal <- ct_deg_table[targets_in_rnaseq, "adj.P.Val"]
+    data.frame(
+      target_id   = targets_in_rnaseq,
+      target_name   = targets_name_in_rnaseq,
+      logFC       = logFC,
+      P.Value     = ct_deg_table[targets_in_rnaseq, "P.Value"],
+      adj.P.Val   = adjPVal,
+      is_DEG      = adjPVal < 0.05,
+      DEG_dir     = ifelse(adjPVal < 0.05 & logFC > 0, "up_in_SCZ",
+                           ifelse(adjPVal < 0.05 & logFC < 0, "down_in_SCZ", "not_DEG")),
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  # ------------------------------------------------------------------
+  # STEP 3: Build network_data (one entry per TF x cell type)
+  # ------------------------------------------------------------------
+  network_data <- lapply(1:nrow(tf_context), function(i) {
+    tf      <- tf_context$Gene[i]
+    tf_id   <- tf_context$Gene_ID[i]
+    ctype_l <- tf_context$ctype[i]
+    ctype_s <- ctype_long2short[ctype_l]
+    targets         <- get_tf_deg_targets(tf, tf_id, ctype_l, ctype_s)
+    targets$TF      <- tf
+    targets$ctype   <- ctype_l
+    targets$corr    <- tf_context$pc1_corr_pearson[i]
+    targets
+  })
+  names(network_data) <- paste0(tf_context$Gene, "_",
+                                ctype_long2short[tf_context$ctype])
+  
+  # ------------------------------------------------------------------
+  # STEP 4: Table S5 List 2
+  # ------------------------------------------------------------------
+  supp_S5 <- do.call("rbind", lapply(1:nrow(tf_context), function(i) {
+    tf_gene  <- tf_context$Gene[i]
+    tf_id    <- tf_context$Gene_ID[i]
+    ctype_l  <- tf_context$ctype[i]
+    ctype_s  <- ctype_long2short[ctype_l]
+    motif_id <- bestMotifs[tf_id, "id"]
+    all_targets       <- EXPRESED[[ctype_l]][[motif_id]]
+    ct_deg_table      <- deg_table[[ctype_s]]
+    targets_in_rnaseq <- all_targets[all_targets %in% rownames(ct_deg_table)]
+    if (length(targets_in_rnaseq) == 0) return(NULL)
+    target_names <- rnaseqSepPeaks[[ctype_s]]$qcPeakAnno[
+      match(targets_in_rnaseq, rnaseqSepPeaks[[ctype_s]]$qcPeakAnno$PeakID), "gene_name"
+    ]
+    logFC   <- ct_deg_table[targets_in_rnaseq, "logFC"]
+    adjPVal <- ct_deg_table[targets_in_rnaseq, "adj.P.Val"]
+    data.frame(
+      TF_gene         = tf_gene,
+      cell_type       = ctype_l,
+      PC1_correlation = round(tf_context$pc1_corr_pearson[i], 3),
+      target_ensembl  = targets_in_rnaseq,
+      target_gene     = target_names,
+      logFC           = logFC,
+      P_value         = ct_deg_table[targets_in_rnaseq, "P.Value"],
+      adj_P_value     = adjPVal,
+      is_DEG          = adjPVal < 0.05,
+      DEG_direction   = ifelse(adjPVal < 0.05 & logFC > 0, "up_in_SCZ",
+                               ifelse(adjPVal < 0.05 & logFC < 0, "down_in_SCZ", "not_DEG")),
+      stringsAsFactors = FALSE
+    )
+  })) %>% arrange(TF_gene, cell_type, desc(is_DEG), adj_P_value)
+  
+  mtsv(supp_S5, filename = "TableS5_List2_EGR1_KLF5_MEF2C_targets", outDir   = file.path(ROOT, "outputs"), myHeader = TRUE)
+  
+  # ------------------------------------------------------------------
+  # STEP 5: Panel A — joint evidence scatter plots
+  # ------------------------------------------------------------------
+  tfDf_complete <- do.call("rbind", tfList)
+  tfDf_complete$pc1_corr_pearsonAbs <- abs(tfDf_complete$pc1_corr_pearson)
+  tfDf_complete <- tfDf_complete[
+    (tfDf_complete$Direction %in% c("up", "down")) &
+      (!tfDf_complete$Motif.Name %in% blacklistedMotifName), ]
+  
+  tf_joint <- tfDf_complete %>%
+    filter(Gene %in% TFS_OF_INTEREST, !is.na(pc1_corr_pearson)) %>%
+    mutate(
+      motif_enrichment = -log10(P.value),
+      motif_sig        = adj.P.value < 0.05,
+      corr_sig         = pc1_corr_pearson_pval < 0.05,
+      both_sig         = motif_sig & corr_sig,
+      ctype_label      = gsub("GABAergic", "GABA",
+                              gsub("glutamatergic", "GLU",
+                                   gsub("oligodendrocytes", "OLIG",
+                                        gsub("microgliaAndAstrocytes", "MGAS", CellType)))),
+      point_label      = paste0(ctype_label, "\n(", Direction, ")")
+    )
+  
+  panel_A <- lapply(TFS_OF_INTEREST, function(tf) {
+    d <- tf_joint %>% filter(Gene == tf)
+    ggplot(d, aes(x = motif_enrichment, y = pc1_corr_pearson,
+                  colour = both_sig, shape = Direction)) +
+      geom_vline(xintercept = -log10(0.05), linetype = "dashed",
+                 colour = "grey60", linewidth = 0.4) +
+      geom_hline(yintercept = 0, linetype = "dashed",
+                 colour = "grey60", linewidth = 0.4) +
+      geom_point(size = 5, alpha = 0.85) +
+      geom_label_repel(aes(label = point_label),
+                       size = 4, max.overlaps = 20,
+                       label.padding = unit(0.2, "lines")) +
+      scale_colour_manual(
+        values = c("TRUE" = "#2ecc71", "FALSE" = "grey70"),
+        labels = c("TRUE" = "Both criteria met", "FALSE" = "Not prioritized"),
+        name   = NULL
+      ) +
+      scale_shape_manual(values = c("up" = 17, "down" = 25),
+                         name = "DAC direction") +
+      labs(title = tf,
+           x = "Motif enrichment in DACs\n(-log10 HOMER P-value)",
+           y = "TF-target PC1 correlation\n(Pearson r)") +
+      theme_bw(base_size = 14) +
+      theme(plot.title       = element_text(face = "bold", hjust = 0.5, size = 16),
+            legend.position  = "bottom",
+            legend.text      = element_text(size = 12),
+            panel.grid.minor = element_blank())
+  })
+  
+  combined_A <- wrap_plots(panel_A, nrow = 1) +
+    plot_annotation(
+      title = "A  |  Joint evidence for cell-type prioritization",
+      theme = theme(plot.title = element_text(face = "bold", size = 13))
+    )
+  
+  # ------------------------------------------------------------------
+  # STEP 6: Panel B — TF-target network plots
+  # ------------------------------------------------------------------
+  colour_map <- c(
+    "TF"          = "#1a1a2e",
+    "up_in_SCZ"   = "#c0392b",
+    "down_in_SCZ" = "#2980b9",
+    "not_DEG"     = "grey75"
+  )
+  
+  plot_tf_network <- function(key, top_n_targets = 30) {
+    d        <- network_data[[key]]
+    tf       <- unique(d$TF)
+    corr_val <- round(unique(d$corr), 3)
+    
+    n_total_targets <- nrow(d)
+    n_total_DEGs    <- sum(d$is_DEG, na.rm = TRUE)
+    
+    d_plot <- d %>%
+      filter(is_DEG) %>%
+      arrange(desc(abs(logFC))) %>%
+      slice_head(n = top_n_targets) %>%
+      filter(!is.na(target_name))
+    
+    n_shown_DEGs <- nrow(d_plot)
+    
+    edges <- data.frame(from = tf, to = d_plot$target_name)
+    tf_node <- data.frame(
+      name     = tf,
+      DEG_dir  = "TF",
+      neg_logP = NA_real_,
+      logFC    = NA_real_,
+      is_TF    = TRUE
+    )
+    target_nodes <- data.frame(
+      name     = d_plot$target_name,
+      DEG_dir  = d_plot$DEG_dir,
+      neg_logP = -log10(pmax(d_plot$adj.P.Val, 1e-10)),
+      logFC    = d_plot$logFC,
+      is_TF    = FALSE
+    )
+    nodes <- bind_rows(tf_node, target_nodes)
+    g     <- tbl_graph(nodes = nodes, edges = edges, directed = TRUE)
+    
+    ggraph(g, layout = "star", center = tf) +
+      geom_edge_link(alpha = 0.25, colour = "grey50",
+                     arrow   = arrow(length = unit(3, "mm"), type = "closed"),
+                     end_cap = circle(4, "mm")) +
+      geom_node_point(aes(colour = DEG_dir,
+                          size   = ifelse(is_TF, 10, pmax(neg_logP, 0.5))),
+                      show.legend = TRUE) +
+      geom_node_label(aes(label = ifelse(is_TF | DEG_dir != "not_DEG", name, "")),
+                      repel = TRUE, size = 4,
+                      label.padding = unit(0.2, "lines"),
+                      max.overlaps  = 30) +
+      scale_colour_manual(
+        values = colour_map,
+        name   = "DEG status (SCZ vs Control)",
+        labels = c("TF"          = "TF (hub)",
+                   "up_in_SCZ"   = "Up in SCZ",
+                   "down_in_SCZ" = "Down in SCZ",
+                   "not_DEG"     = "Not DEG")
+      ) +
+      scale_size_continuous(name = "-log10(adj.P)", range = c(3, 10)) +
+      labs(
+        title    = paste0(tf, " regulatory network"),
+        subtitle = paste0(
+          "Cell type: ", unique(d$ctype),
+          "  |  PC1 r = ", corr_val,
+          "  |  Tested targets: ", n_total_targets,
+          "  |  DEG targets: ", n_total_DEGs,
+          " (", n_shown_DEGs, " shown, ranked by |logFC|)"
+        )
+      ) +
+      theme_graph(base_family = "sans", base_size = 14) +
+      theme(plot.title      = element_text(face = "bold", size = 16),
+            plot.subtitle   = element_text(size = 11),
+            legend.position = "right",
+            legend.text     = element_text(size = 12),
+            legend.title    = element_text(size = 13, face = "bold"))
+  }
+  
+  network_plots <- lapply(names(network_data), plot_tf_network, top_n_targets = 30)
+  names(network_plots) <- names(network_data)
+  
+  combined_B <- wrap_plots(network_plots, nrow = 1) +
+    plot_annotation(
+      title = "B  |  TF-target networks in prioritized cell types (top 30 DEGs by |logFC|)",
+      theme = theme(plot.title = element_text(face = "bold", size = 13))
+    )
+  
+  # ------------------------------------------------------------------
+  # STEP 7: Save combined supplementary figure
+  # ------------------------------------------------------------------
+  n_networks <- length(network_plots)   # 4 panels if MEF2C has OLIG + MGAS
+  mpdf("Fig_SX_TF",
+       outDir = file.path(ROOT, "outputs"),
+       width  = 10 * n_networks,        # ~10 inches per network panel
+       height = 18)
+  print(combined_A / combined_B + plot_layout(heights = c(1, 2)))
+  dev.off()
+}
+
+####################################################################################################
+##### FIG. S8 :: INTEGRATED CO-EXPRESSION AND CHROMATIN REGULATORY COUPLING ########################
+
+{
+  # Fig. S8b ::: Distribution of module sizes (number of genes per module) across cell types, illustrating the modular structure of transcriptional organization within each population.
   {
     eigenVectorCorrelSum = do.call("rbind.data.frame", genMod$EIGENCORRELSUM)
     df = eigenVectorCorrelSum
@@ -937,10 +1279,10 @@ library(UpSetR)
                                                                                                  inherit.aes = FALSE) + scale_fill_npg() + scale_y_continuous(labels = scales::comma) +
       labs(x = NULL, y = "Number of genes per module") +
       theme_classic(base_size = 12) + theme(legend.position = "none", axis.text.x = element_text(face = "bold"), plot.title = element_text(face = "bold")) + coord_flip()
-    mpdf("Fig_S7_b", outDir=file.path(ROOT, "outputs"), width=4, height=2); print(wgcnaPlot); dev.off()
+    mpdf("Fig_S8_b", outDir=file.path(ROOT, "outputs"), width=4, height=2); print(wgcnaPlot); dev.off()
   }
   
-  # Fig. S7c ::: Assessment of intramodular coherence shown as the fraction of high-membership hub genes (kME > 0.6) per module, indicating the extent to which modules are internally structured; each point corresponds to one module.
+  # Fig. S8c ::: Assessment of intramodular coherence shown as the fraction of high-membership hub genes (kME > 0.6) per module, indicating the extent to which modules are internally structured; each point corresponds to one module.
   {
     hub_thresh = 0.6
     
@@ -976,12 +1318,12 @@ library(UpSetR)
       hubSumPlot = ggplot(hub_summary, aes(x = "", y = frac_hubs)) + geom_violin(fill = "#d73027", alpha = 0.6, width = 0.8) +
         geom_point(size = 2, position = position_jitter(width = 0.05)) + geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
         coord_cartesian(ylim = c(0, 1)) + theme_classic() + labs(y = "Fraction of hub genes (kME > 0.6)",x = NULL)
-      mpdf(paste0("Fig_S7_c_", ctype), outDir=file.path(ROOT, "outputs"), width=2, height=3); print(hubSumPlot); dev.off()
+      mpdf(paste0("Fig_S8_c_", ctype), outDir=file.path(ROOT, "outputs"), width=2, height=3); print(hubSumPlot); dev.off()
     }
   }
   
   ###
-  # Fig. S7d ::: Proportion of modules per cell type associated with at least one significant module-regulating OCR, reflecting the prevalence of coordinated chromatin-transcription coupling at the module level.
+  # Fig. S8d ::: Proportion of modules per cell type associated with at least one significant module-regulating OCR, reflecting the prevalence of coordinated chromatin-transcription coupling at the module level.
   {
     df = eigenVectorCorrelSum
     df = df %>% mutate(has_reg_OCR = nSig > 0)
@@ -998,13 +1340,13 @@ library(UpSetR)
         x = NULL,
         title = "Prevalence of chromatin-transcription coupling"
       )
-    mpdf("Fig_S7_d", outDir=file.path(ROOT, "outputs"), width=3, height=3); print(propNonZeroPlot); dev.off()
+    mpdf("Fig_S8_d", outDir=file.path(ROOT, "outputs"), width=3, height=3); print(propNonZeroPlot); dev.off()
   }
   
   ###
-  # Fig. S7e ::: Rank-ordered distribution of module-regulating OCR counts per module (log scale), demonstrating non-uniformity in the extent of chromatin association across transcriptional programs.
+  # Fig. S8e ::: Rank-ordered distribution of module-regulating OCR counts per module (log scale), demonstrating non-uniformity in the extent of chromatin association across transcriptional programs.
   {
-    mpdf("Fig_S7_e", outDir=file.path(ROOT, "outputs"), width=5, height=3)
+    mpdf("Fig_S8_e", outDir=file.path(ROOT, "outputs"), width=5, height=3)
     print(df %>% group_by(ctype) %>% arrange(desc(nSig)) %>% mutate(rank = row_number()) %>%
       ggplot(aes(x = rank, y = nSig, color = ctype)) + geom_line() + scale_color_npg() + scale_y_continuous(trans = "log10") +
       theme_classic() + labs(x = "Module rank (by regulatory OCRs)", y = "nSig (log scale)", title = "A minority of modules account for most regulatory signal"))
@@ -1012,7 +1354,7 @@ library(UpSetR)
   }
   
   ###
-  # Fig. S7f ::: Gene set enrichment analysis showing all significantly enriched pathways (BH-corrected P < 0.05) for the oligodendrocyte “darkgrey” gene module.
+  # Fig. S8f ::: Gene set enrichment analysis showing all significantly enriched pathways (BH-corrected P < 0.05) for the oligodendrocyte “darkgrey” gene module.
   { 
     df = read.csv(file.path(ROOT, "inputs", "gene_modules_GSEA_OLIG.tsv.gz"), sep="\t")
     df_plot = df %>% filter(Set == "darkgrey", BH_AdjP < 0.05) %>% mutate(minusLogP = -log10(pval)) %>% arrange(desc(minusLogP))
@@ -1021,18 +1363,18 @@ library(UpSetR)
       coord_flip() + scale_fill_npg() + labs(x = NULL, y = expression(-log[10]("P-value")), title = "Top enriched pathways - darkgrey module") +
       theme_classic(base_size = 12) + theme(axis.text.y = element_text(size = 10), plot.title = element_text(face = "bold"))
     
-    mpdf("Fig_S7_f", outDir=file.path(ROOT, "outputs"), width=10, height=4); print(gseaOligPlot); dev.off()
+    mpdf("Fig_S8_f", outDir=file.path(ROOT, "outputs"), width=10, height=4); print(gseaOligPlot); dev.off()
   }
 }
-  
+
 ####################################################################################################
-##### FIG. S8 :: WGCNA MODULE EIGENGENE NETWORK WITHIN EACH CELL TYPE ##############################
+##### FIG. S9 :: WGCNA MODULE EIGENGENE NETWORK WITHIN EACH CELL TYPE ##############################
 
 {
   for(ctype in c("GABA", "GLU", "OLIG", "MGAS")) {
     MEcor = cor(genMod$MEs_LIST[[ctype]], use = "pairwise.complete.obs")
     hc = hclust(as.dist(1 - abs(MEcor)), method = "average")
-    pdf(file=file.path(ROOT, "outputs", paste0("Fig_S8_", ctype, ".pdf")), width=4, height=4)
+    pdf(file=file.path(ROOT, "outputs", paste0("Fig_S9_", ctype, ".pdf")), width=4, height=4)
     heatmap(
       MEcor,
       Rowv = as.dendrogram(hc),
@@ -1052,7 +1394,7 @@ library(UpSetR)
     me = genMod$MEs_LIST[[ctype]]
     names(me) = gsub("^ME", "", names(me))
     
-    pdf(file=file.path(ROOT, "outputs", paste0("Fig_S8_", ctype, ".pdf")), width=8, height=7) 
+    pdf(file=file.path(ROOT, "outputs", paste0("Fig_S9_", ctype, ".pdf")), width=8, height=7) 
     WGCNA::plotEigengeneNetworks(
       me,
       setLabels = ctype,
@@ -1066,58 +1408,50 @@ library(UpSetR)
 }
 
 ####################################################################################################
-##### FIG. S9 :: CONCORDANCE BETWEEN DIFF GENE EXPRESSION RESULTS FROM THIS STUDY AND PSYCHAD ######
+##### FIG. S13 :: CROSS-VALIDATED PERFORMANCE OF CELL-TYPE-SPECIFIC EXPRESSION IMPUTATION ##########
 
 {
-  # Load the results of our and PsychAD differential analysis
-  degAnalysis = new.env(); load(DEG_ANALYSIS, envir=degAnalysis)
-  psychadDf = readRDS(DEG_ANALYSIS_PSYCHAD_c07x)
+  ## Cell-type label map: source names → pipeline labels
+  CT_MAP_BMIND <- c(GABA = "GABA", GLU = "GLU", Olig = "OLIG", MgAs = "MGAS")
   
-  # Set the corresponding cell types between PsychAD and our study. Note that our OLIG and MGAS correspond to multiple PsychAD cell populations
-  PAIRS = list(
-    "GLU.SCZ_Control" = c("EN"),
-    "GABA.SCZ_Control" = c("IN"),
-    "Olig.SCZ_Control" = c("Oligo", "OPC"),
-    "MgAs.SCZ_Control" = c("Astro", "Immune")   # Theoretically also "Mural" and "Endo" but we ignore them as those are very small cell populations
-  )
+  ## Load per-sample Pearson correlations (FANS vs bMIND-imputed, one row per sample)
+  sampleCorr <- read.csv(BMIND_SAMPLE_LEVEL_COR, stringsAsFactors = FALSE)
+  sampleCorr$ct_pipeline <- CT_MAP_BMIND[sampleCorr$Cell_type]
+  sampleCorr <- sampleCorr[!is.na(sampleCorr$ct_pipeline) & is.finite(sampleCorr$Pearson), ]
+  sampleCorr$Cell_type <- factor(sampleCorr$ct_pipeline, levels = CELL_TYPES)
   
-  # PsychAD gene identifiers is a mix of Ensembl gene names and identifiers -> let's convert it to identifiers
-  psychadDf$Ensembl_IDx = gtf[match(psychadDf$ID, gtf$gene_name), "PeakID"]
-  psychadDf$Ensembl_ID = ifelse(is.na(psychadDf$Ensembl_IDx), psychadDf$ID, psychadDf$Ensembl_IDx)
+  ## Summary table: per cell type median r, IQR, fraction > 0.3, fraction < 0
+  sampleCorrSummary <- do.call(rbind, lapply(CELL_TYPES, function(ct) {
+    d <- sampleCorr[sampleCorr$ct_pipeline == ct, ]
+    data.frame(
+      Cell_type   = ct,
+      N_samples   = nrow(d),
+      Median      = median(d$Pearson),
+      IQR_low     = as.numeric(quantile(d$Pearson, 0.25)),
+      IQR_high    = as.numeric(quantile(d$Pearson, 0.75)),
+      Frac_gt_0.3 = mean(d$Pearson > 0.3),
+      Frac_lt_0   = mean(d$Pearson < 0),
+      row.names   = NULL
+    )
+  }))
+  print(sampleCorrSummary)
+  mtsv(sampleCorrSummary,
+       filename = "Fig_S13_sample_corr_summary",
+       outDir   = file.path(ROOT, "outputs"),
+       myHeader = TRUE)
   
-  # Iterate over all possible pairs (our t-stats -vs- PsychAD t-stats for all combinations of cell populations) and save their comparison
-  DENSITY_PLOTS = list()
-  for(pairName in names(PAIRS)) {
-    pair = PAIRS[[pairName]]
-    for(psychAD_ctype in pair) {
-      ours = degAnalysis$dacResults$dac[[pairName]][degAnalysis$dacResults$dac[[pairName]]$adj.P.Val < 0.05,]  # Only genes that are FDR significant in our study are being tested
-      psychad_subsetDf = psychadDf[(psychadDf$assay == psychAD_ctype),]
-      psychad_subsetDf = psychad_subsetDf[!duplicated(psychad_subsetDf$Ensembl_ID),]
-      rownames(psychad_subsetDf) = psychad_subsetDf$Ensembl_ID
-      isect = intersect(ours$PeakID, psychad_subsetDf$Ensembl_ID)
-      colnames(psychad_subsetDf) = paste0("psychad_", colnames(psychad_subsetDf))
-      df = cbind.data.frame(ours[isect,c("t", "AveExpr", "logFC")], psychad_subsetDf[isect,])
-      if(nrow(df) < 10)
-        next
-      
-      df$density = get_density(df$t, df[,"psychad_t"], n = 100)
-      axisMax = round(max((abs(df$t)),max(abs(df[,"psychad_t"]))+0.5))
-      
-      axisMaxX = round(max(abs(df$t)) + 0.5)
-      axisMaxY = round(max(abs(df[,"psychad_t"])) + 0.5)
-      densityScatter = ggplot(df, aes_string(x="t", y="psychad_t")) + geom_point(aes_string(x="t", y="psychad_t", color="density")) + scale_color_viridis() +
-        coord_cartesian(xlim = c(-axisMaxX, axisMaxX), ylim = c(-axisMaxY, axisMaxY)) + theme_classic() + theme(aspect.ratio = 1, axis.text.y=element_text(colour="black")) + 
-        xlab(paste0("t-stats; this study - ", pairName)) + ylab(paste0("t-stats; PsychAD ", psychAD_ctype))  +
-        geom_abline(intercept=0, slope=1, color="gray", linetype="dashed") + geom_hline(yintercept=0, color="gray", linetype="dashed") + geom_smooth(method=lm, se=FALSE) +
-        ggtitle(paste0("R=", round(cor.test(df$t, df[,"psychad_t"])$estimate, 3)))
-      print(densityScatter)
-      
-      DENSITY_PLOTS[[paste0("densityScatter_PsychAD_", pairName, "__", psychAD_ctype)]] = densityScatter
-    }
-  }
+  # Per-sample Pearson r stratified by cell type
+  pSampleDist <- ggplot(sampleCorr, aes(x = Cell_type, y = Pearson, fill = Cell_type)) +
+    geom_violin(width = 0.85, linewidth = 0.3) +
+    geom_jitter(width = 0.12, size = 1.2, alpha = 0.55, colour = "grey30") +
+    geom_boxplot(width = 0.16, outlier.shape = NA, linewidth = 0.3, alpha = 0.4) +
+    geom_hline(yintercept = 0,   linewidth = 0.3, colour = "grey40") +
+    geom_hline(yintercept = 0.3, linetype = "dotted", linewidth = 0.3, colour = "grey40") +
+    scale_fill_manual(values = c(GABA = npgList$GABA, GLU  = npgList$GLU, OLIG = npgList$OLIG, MGAS = npgList$MGAS)) +
+    labs(x    = NULL, y    = "Pearson R", fill = NULL) +
+    theme_bw(base_size = 11) + theme(legend.position = "none", axis.text = element_text(colour = "black"))
   
-  combined_plot = wrap_plots(DENSITY_PLOTS, ncol = 3)
-  mpdf(paste0("Fig_S9"), outDir=file.path(ROOT, "outputs"), width=9, height=6); print(combined_plot); dev.off()
+  mpdf("Fig_S13", outDir = file.path(ROOT, "outputs"), width = 5, height = 4); print(pSampleDist); dev.off()
 }
 
 ####################################################################################################
@@ -1287,7 +1621,6 @@ library(UpSetR)
   
   # Fig. 2b: Heritability coefficients for SCZ risk variants across various sets of differentially accessible OCRs
   {
-      
     # Read results of LDsc run
     ldscScores = read.csv(file.path(ROOT, "inputs", "ldsc_results.tsv"), sep="\t", stringsAsFactors=F)
     
@@ -1388,16 +1721,6 @@ library(UpSetR)
   #####
   # Fig. 2e: Prioritized TF genes
   {
-    # Load HOMER & TOBIAS results
-    tfList = readRDS(file.path(ROOT, "inputs", "homer_and_tobias.RDS"))
-    
-    # Definition of "blacklisted motifs that we don't use because there are better alternatives in the results for the same TFs
-    blacklistedMotifName = c("ETS:RUNX(ETS,Runt)/Jurkat-RUNX1-ChIP-Seq(GSE17954)/Homer", "ETS:E-box(ETS,bHLH)/HPC7-Scl-ChIP-Seq(GSE22178)/Homer", "ETS(ETS)/Promoter/Homer", 
-                             "OCT:OCT(POU,Homeobox)/NPC-OCT6-ChIP-Seq(GSE43916)/Homer", "OCT:OCT(POU,Homeobox)/NPC-Brn1-ChIP-Seq(GSE35496)/Homer", "OCT:OCT(POU,Homeobox,IR1)/NPC-Brn2-ChIP-Seq(GSE35496)/Homer", 
-                             "OCT:OCT-short(POU,Homeobox)/NPC-OCT6-ChIP-Seq(GSE43916)/Homer", "RAR:RXR(NR),DR5/ES-RAR-ChIP-Seq(GSE56893)/Homer", "Tcf3(HMG)/mES-Tcf3-ChIP-Seq(GSE11724)/Homer", "E2A(bHLH),near_PU.1/Bcell-PU.1-ChIP-Seq(GSE21512)/Homer",
-                             "Fra2(bZIP)/Striatum-Fra2-ChIP-Seq(GSE43429)/Homer", "RBPJ:Ebox(?,bHLH)/Panc1-Rbpj1-ChIP-Seq(GSE47459)/Homer", "Stat3+il21(Stat)/CD4-Stat3-ChIP-Seq(GSE19198)/Homer", 
-                             "STAT6(Stat)/Macrophage-Stat6-ChIP-Seq(GSE38377)/Homer", "Tcf12(bHLH)/GM12878-Tcf12-ChIP-Seq(GSE32465)/Homer", "THRb(NR)/HepG2-THRb.Flag-ChIP-Seq(Encode)/Homer")
-    
     # First result-filtering, i.e. keep only "up" & "down" (not "all" which is "up"+"down") & remove suboptimal motifs that have better alternatives in the results
     tfDf_complete = do.call("rbind", tfList)
     tfDf_complete$pc1_corr_pearsonAbs = abs(tfDf_complete$pc1_corr_pearson)
@@ -1418,12 +1741,12 @@ library(UpSetR)
     
     # Plot Fig. 2e :: Prioritized TF genes
     tfDf_complete = tfDf_complete[(tfDf_complete$Gene %in% unique(tfDf$Gene)) & (tfDf_complete$Motif.Name %in% unique(tfDf$Motif.Name)) & (tfDf_complete$pc1_corr_pearson_pval < 0.05), ]
-    fig2f_plot = tfDf_complete %>%  
+    fig2e_plot = tfDf_complete %>%  
       mutate(pc1_corr_pearsonAbs, Gene = factor(Gene, levels = clust$labels[clust$order]), visible = ifelse(adj.P.value < 0.05, TRUE, FALSE)) %>% 
       ggplot(aes(y=cat, x=Gene, color = pc1_corr_pearsonAbs, size = minus_Log.P.value)) + geom_point(aes(size = -Log.P.value, alpha = visible)) + 
       cowplot::theme_cowplot() + theme(axis.line  = element_blank()) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
       ylab('') + theme(axis.ticks = element_blank()) + scale_color_gradientn(colours = myPalette(100),name="abs(TF target corr)") + coord_flip()
-    mpdf("Fig_2_e", outDir=file.path(ROOT, "outputs"), width=4, height=12); print(fig2f_plot); dev.off();
+    mpdf("Fig_2_e", outDir=file.path(ROOT, "outputs"), width=4, height=12); print(fig2e_plot); dev.off();
     
     #####
     # Table TF :: Summary of TF motif enrichment and footprinting analysis results across SCZ-associated OCRs
@@ -1434,296 +1757,6 @@ library(UpSetR)
     
     # Write Table TF
     mtsv(table_tf, filename="Table_TF", outDir=file.path(ROOT, "outputs"), myHeader=T)
-  }
-  
-  #####
-  # Fig. SX_TF: Cell-type-specific regulatory evidence and TF-target networks for EGR1, KLF5, MEF2C
-  {
-    library(igraph)
-    library(ggraph)
-    library(tidygraph)
-    library(ggrepel)
-    
-    TFS_OF_INTEREST <- c("EGR1", "KLF5", "MEF2C")
-    
-    ctype_long2short <- c(
-      "GABAergic"              = "GABA",
-      "glutamatergic"          = "GLU",
-      "oligodendrocytes"       = "OLIG",
-      "microgliaAndAstrocytes" = "MGAS"
-    )
-    
-    # Cell-type-specific DEG tables (full, unfiltered)
-    deg_table <- list(
-      "GABA" = degAnalysis$dacResults$dac$GABA.SCZ_Control,
-      "GLU"  = degAnalysis$dacResults$dac$GLU.SCZ_Control,
-      "OLIG" = degAnalysis$dacResults$dac$Olig.SCZ_Control,
-      "MGAS" = degAnalysis$dacResults$dac$MgAs.SCZ_Control
-    )
-    
-    # Load TOBIAS EXPRESED object and bestMotifs
-    EXPRESED   <- readRDS(file.path(ROOT, "inputs", "expressed.RData"))
-    bestMotifs <- read.delim(file.path(ROOT, "inputs", "tableGenerated_bestMotifs_hg38.tsv"), stringsAsFactors = FALSE)
-    bestMotifs$TF_NameCustom_trimmed <- gsub("[,/]", "", bestMotifs$TF_NameCustom)
-    bestMotifs$id                    <- paste0(bestMotifs$TF_NameCustom_trimmed, "_", bestMotifs$Motif_ID)
-    rownames(bestMotifs)             <- bestMotifs$tf_ensembl
-    
-    # Load suppTable (Table S5 List 1) produced in the TF analysis script
-    suppTable <- read.csv(file.path(ROOT, "inputs", "TF_enrichment_footprinting.csv"), stringsAsFactors = FALSE)
-    
-    # ------------------------------------------------------------------
-    # STEP 1: tf_context - all rows for the three TFs passing both criteria
-    # ------------------------------------------------------------------
-    tf_context <- suppTable %>%
-      filter(Gene %in% TFS_OF_INTEREST) %>%
-      group_by(Gene) %>%
-      ungroup() %>%
-      select(Gene, Gene_ID, ctype, cat, direction,
-             pc1_corr_pearson, pc1_corr_pearson_pval, adj.P.value)
-    
-    # ------------------------------------------------------------------
-    # STEP 2: get_tf_deg_targets helper
-    # ------------------------------------------------------------------
-    get_tf_deg_targets <- function(tf_gene, tf_gene_id, ctype_long, ctype_s) {
-      motif_id          <- bestMotifs[tf_gene_id, "id"]
-      all_targets       <- EXPRESED[[ctype_long]][[motif_id]]
-      ct_deg_table      <- deg_table[[ctype_s]]
-      targets_in_rnaseq <- all_targets[all_targets %in% rownames(ct_deg_table)]
-      if (length(targets_in_rnaseq) == 0) return(NULL)
-      #target_names <- rnaseq[[ctype_s]]$qcPeakAnno[
-      #  match(targets_in_rnaseq, rnaseq[[ctype_s]]$qcPeakAnno$PeakID), "gene_name"
-      #]
-      logFC   <- ct_deg_table[targets_in_rnaseq, "logFC"]
-      adjPVal <- ct_deg_table[targets_in_rnaseq, "adj.P.Val"]
-      data.frame(
-        target_id   = targets_in_rnaseq,
-        logFC       = logFC,
-        P.Value     = ct_deg_table[targets_in_rnaseq, "P.Value"],
-        adj.P.Val   = adjPVal,
-        is_DEG      = adjPVal < 0.05,
-        DEG_dir     = ifelse(adjPVal < 0.05 & logFC > 0, "up_in_SCZ",
-                             ifelse(adjPVal < 0.05 & logFC < 0, "down_in_SCZ", "not_DEG")),
-        stringsAsFactors = FALSE
-      )
-    }
-    
-    # ------------------------------------------------------------------
-    # STEP 3: Build network_data (one entry per TF x cell type)
-    # ------------------------------------------------------------------
-    network_data <- lapply(1:nrow(tf_context), function(i) {
-      tf      <- tf_context$Gene[i]
-      tf_id   <- tf_context$Gene_ID[i]
-      ctype_l <- tf_context$ctype[i]
-      ctype_s <- ctype_long2short[ctype_l]
-      targets         <- get_tf_deg_targets(tf, tf_id, ctype_l, ctype_s)
-      targets$TF      <- tf
-      targets$ctype   <- ctype_l
-      targets$corr    <- tf_context$pc1_corr_pearson[i]
-      targets
-    })
-    names(network_data) <- paste0(tf_context$Gene, "_",
-                                  ctype_long2short[tf_context$ctype])
-    
-    # ------------------------------------------------------------------
-    # STEP 4: Table S5 List 2
-    # ------------------------------------------------------------------
-    supp_S5 <- do.call("rbind", lapply(1:nrow(tf_context), function(i) {
-      tf_gene  <- tf_context$Gene[i]
-      tf_id    <- tf_context$Gene_ID[i]
-      ctype_l  <- tf_context$ctype[i]
-      ctype_s  <- ctype_long2short[ctype_l]
-      motif_id <- bestMotifs[tf_id, "id"]
-      all_targets       <- EXPRESED[[ctype_l]][[motif_id]]
-      ct_deg_table      <- deg_table[[ctype_s]]
-      targets_in_rnaseq <- all_targets[all_targets %in% rownames(ct_deg_table)]
-      if (length(targets_in_rnaseq) == 0) return(NULL)
-      target_names <- rnaseq[[ctype_s]]$qcPeakAnno[
-        match(targets_in_rnaseq, rnaseq[[ctype_s]]$qcPeakAnno$PeakID), "gene_name"
-      ]
-      logFC   <- ct_deg_table[targets_in_rnaseq, "logFC"]
-      adjPVal <- ct_deg_table[targets_in_rnaseq, "adj.P.Val"]
-      data.frame(
-        TF_gene         = tf_gene,
-        cell_type       = ctype_l,
-        PC1_correlation = round(tf_context$pc1_corr_pearson[i], 3),
-        target_ensembl  = targets_in_rnaseq,
-        target_gene     = target_names,
-        logFC           = logFC,
-        P_value         = ct_deg_table[targets_in_rnaseq, "P.Value"],
-        adj_P_value     = adjPVal,
-        is_DEG          = adjPVal < 0.05,
-        DEG_direction   = ifelse(adjPVal < 0.05 & logFC > 0, "up_in_SCZ",
-                                 ifelse(adjPVal < 0.05 & logFC < 0, "down_in_SCZ", "not_DEG")),
-        stringsAsFactors = FALSE
-      )
-    })) %>%
-      arrange(TF_gene, cell_type, desc(is_DEG), adj_P_value)
-    
-    mtsv(supp_S5,
-         filename = "TableS5_List2_EGR1_KLF5_MEF2C_targets",
-         outDir   = file.path(ROOT, "outputs"),
-         myHeader = TRUE)
-    
-    # ------------------------------------------------------------------
-    # STEP 5: Panel A — joint evidence scatter plots
-    # ------------------------------------------------------------------
-    # Rebuild dfFinal3 from suppTable for the three TFs across all ctypes
-    tfDf_complete <- do.call("rbind", tfList)
-    tfDf_complete$pc1_corr_pearsonAbs <- abs(tfDf_complete$pc1_corr_pearson)
-    tfDf_complete <- tfDf_complete[
-      (tfDf_complete$Direction %in% c("up", "down")) &
-        (!tfDf_complete$Motif.Name %in% blacklistedMotifName), ]
-    
-    tf_joint <- tfDf_complete %>%
-      filter(Gene %in% TFS_OF_INTEREST, !is.na(pc1_corr_pearson)) %>%
-      mutate(
-        motif_enrichment = -log10(P.value),
-        motif_sig        = adj.P.value < 0.05,
-        corr_sig         = pc1_corr_pearson_pval < 0.05,
-        both_sig         = motif_sig & corr_sig,
-        ctype_label      = gsub("GABAergic", "GABA",
-                                gsub("glutamatergic", "GLU",
-                                     gsub("oligodendrocytes", "OLIG",
-                                          gsub("microgliaAndAstrocytes", "MGAS", CellType)))),
-        point_label      = paste0(ctype_label, "\n(", Direction, ")")
-      )
-    
-    panel_A <- lapply(TFS_OF_INTEREST, function(tf) {
-      d <- tf_joint %>% filter(Gene == tf)
-      ggplot(d, aes(x = motif_enrichment, y = pc1_corr_pearson,
-                    colour = both_sig, shape = Direction)) +
-        geom_vline(xintercept = -log10(0.05), linetype = "dashed",
-                   colour = "grey60", linewidth = 0.4) +
-        geom_hline(yintercept = 0, linetype = "dashed",
-                   colour = "grey60", linewidth = 0.4) +
-        geom_point(size = 5, alpha = 0.85) +
-        geom_label_repel(aes(label = point_label),
-                         size = 4, max.overlaps = 20,
-                         label.padding = unit(0.2, "lines")) +
-        scale_colour_manual(
-          values = c("TRUE" = "#2ecc71", "FALSE" = "grey70"),
-          labels = c("TRUE" = "Both criteria met", "FALSE" = "Not prioritized"),
-          name   = NULL
-        ) +
-        scale_shape_manual(values = c("up" = 17, "down" = 25),
-                           name = "DAC direction") +
-        labs(title = tf,
-             x = "Motif enrichment in DACs\n(-log10 HOMER P-value)",
-             y = "TF-target PC1 correlation\n(Pearson r)") +
-        theme_bw(base_size = 14) +
-        theme(plot.title       = element_text(face = "bold", hjust = 0.5, size = 16),
-              legend.position  = "bottom",
-              legend.text      = element_text(size = 12),
-              panel.grid.minor = element_blank())
-    })
-    
-    combined_A <- wrap_plots(panel_A, nrow = 1) +
-      plot_annotation(
-        title = "A  |  Joint evidence for cell-type prioritization",
-        theme = theme(plot.title = element_text(face = "bold", size = 13))
-      )
-    
-    # ------------------------------------------------------------------
-    # STEP 6: Panel B — TF-target network plots
-    # ------------------------------------------------------------------
-    colour_map <- c(
-      "TF"          = "#1a1a2e",
-      "up_in_SCZ"   = "#c0392b",
-      "down_in_SCZ" = "#2980b9",
-      "not_DEG"     = "grey75"
-    )
-    
-    plot_tf_network <- function(key, top_n_targets = 30) {
-      d        <- network_data[[key]]
-      tf       <- unique(d$TF)
-      corr_val <- round(unique(d$corr), 3)
-      
-      n_total_targets <- nrow(d)
-      n_total_DEGs    <- sum(d$is_DEG, na.rm = TRUE)
-      
-      d_plot <- d %>%
-        filter(is_DEG) %>%
-        arrange(desc(abs(logFC))) %>%
-        slice_head(n = top_n_targets) %>%
-        filter(!is.na(target_name))
-      
-      n_shown_DEGs <- nrow(d_plot)
-      
-      edges <- data.frame(from = tf, to = d_plot$target_name)
-      tf_node <- data.frame(
-        name     = tf,
-        DEG_dir  = "TF",
-        neg_logP = NA_real_,
-        logFC    = NA_real_,
-        is_TF    = TRUE
-      )
-      target_nodes <- data.frame(
-        name     = d_plot$target_name,
-        DEG_dir  = d_plot$DEG_dir,
-        neg_logP = -log10(pmax(d_plot$adj.P.Val, 1e-10)),
-        logFC    = d_plot$logFC,
-        is_TF    = FALSE
-      )
-      nodes <- bind_rows(tf_node, target_nodes)
-      g     <- tbl_graph(nodes = nodes, edges = edges, directed = TRUE)
-      
-      ggraph(g, layout = "star", center = tf) +
-        geom_edge_link(alpha = 0.25, colour = "grey50",
-                       arrow   = arrow(length = unit(3, "mm"), type = "closed"),
-                       end_cap = circle(4, "mm")) +
-        geom_node_point(aes(colour = DEG_dir,
-                            size   = ifelse(is_TF, 10, pmax(neg_logP, 0.5))),
-                        show.legend = TRUE) +
-        geom_node_label(aes(label = ifelse(is_TF | DEG_dir != "not_DEG", name, "")),
-                        repel = TRUE, size = 4,
-                        label.padding = unit(0.2, "lines"),
-                        max.overlaps  = 30) +
-        scale_colour_manual(
-          values = colour_map,
-          name   = "DEG status (SCZ vs Control)",
-          labels = c("TF"          = "TF (hub)",
-                     "up_in_SCZ"   = "Up in SCZ",
-                     "down_in_SCZ" = "Down in SCZ",
-                     "not_DEG"     = "Not DEG")
-        ) +
-        scale_size_continuous(name = "-log10(adj.P)", range = c(3, 10)) +
-        labs(
-          title    = paste0(tf, " regulatory network"),
-          subtitle = paste0(
-            "Cell type: ", unique(d$ctype),
-            "  |  PC1 r = ", corr_val,
-            "  |  Tested targets: ", n_total_targets,
-            "  |  DEG targets: ", n_total_DEGs,
-            " (", n_shown_DEGs, " shown, ranked by |logFC|)"
-          )
-        ) +
-        theme_graph(base_family = "sans", base_size = 14) +
-        theme(plot.title      = element_text(face = "bold", size = 16),
-              plot.subtitle   = element_text(size = 11),
-              legend.position = "right",
-              legend.text     = element_text(size = 12),
-              legend.title    = element_text(size = 13, face = "bold"))
-    }
-    
-    network_plots <- lapply(names(network_data), plot_tf_network, top_n_targets = 30)
-    names(network_plots) <- names(network_data)
-    
-    combined_B <- wrap_plots(network_plots, nrow = 1) +
-      plot_annotation(
-        title = "B  |  TF-target networks in prioritized cell types (top 30 DEGs by |logFC|)",
-        theme = theme(plot.title = element_text(face = "bold", size = 13))
-      )
-    
-    # ------------------------------------------------------------------
-    # STEP 7: Save combined supplementary figure
-    # ------------------------------------------------------------------
-    n_networks <- length(network_plots)   # 4 panels if MEF2C has OLIG + MGAS
-    mpdf("Fig_SX_TF",
-         outDir = file.path(ROOT, "outputs"),
-         width  = 10 * n_networks,        # ~10 inches per network panel
-         height = 18)
-    print(combined_A / combined_B + plot_layout(heights = c(1, 2)))
-    dev.off()
   }
 }
 
@@ -2169,7 +2202,7 @@ library(UpSetR)
   }
   
   
-  # Fig. 5b: MAGMA analysis for genes with SCZ differential transcripts detected by remacor
+  # Fig. 5c: MAGMA analysis for genes with SCZ differential transcripts detected by remacor
   {
     # Load precalculated MAGMA results
     magma = read.csv(MAGMA_REMACOR_GENES)
@@ -2252,7 +2285,6 @@ library(UpSetR)
     
     trim2_plot = ggplot(data=trim2_exp2[trim2_exp2$X1 %in% c("ENST00000338700", "ENST00000460908"),], aes(x=X1, y=value, fill=group)) + geom_boxplot() + labs(title="", x="Transcript ID", y="Expression") + 
       theme_classic() + theme(axis.text.x = element_text(angle = 90))
-    trim2_plot
     mpdf("Fig_5_g", outDir=file.path(ROOT, "outputs"), width=8, height=5); print(trim2_plot); dev.off();
   }
 }
