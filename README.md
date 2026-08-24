@@ -52,7 +52,7 @@ Before running any script, users must update ROOT to their local repository path
 This repository does not ship with the raw or processed input data used for the analyses. Before running any script, the `inputs/` directory must be populated manually by downloading the study data from Synapse. Please download and untar the full contents of the following Synapse folder directly into the `inputs/` directory:
 
 **Synapse ID**: `syn62787384`<br />
-**URL**: https://www.synapse.org/Synapse:syn62787384
+**URL**: https://www.synapse.org/Synapse:syn62784441
 
 After extraction, the directory structure is expected to be:
 ```

@@ -61,7 +61,7 @@ library(ggrepel)
   COLOCALIZED_EQTL_SCZ_GWAS = file.path(ROOT, "inputs", "colocalized_eqtl_scz_gwas.xlsx")  # Cell-specific eQTLs colocalized with SCZ GWAS
   EQTL = file.path(ROOT, "inputs", "eqtl.xlsx")                    # Cell-specific eQTLs
   MAGMA_REMACOR_GENES = file.path(ROOT, "inputs", "REMACOR_ANALYSIS_MAGMA.csv")    # MAGMA performed on selected traits for genes related to remacor-prioritized transcripts
-  BMIND_SAMPLE_LEVEL_COR = file.path(ROOT, "inputs", "BMIND_reference_sample_level_correlations.csv") # "BMIND sample-level correlations between our FANS and bulk-imputed-to-FANS (using BMINFD)
+  BMIND_DONOR_LEVEL_COR = file.path(ROOT, "inputs", "BMIND_reference_donor_level_correlations.csv") # "BMIND donor-level correlations between our FANS and bulk-imputed-to-FANS (using BMINFD)
   
   METADATA_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_metadata.csv")   # Metadata for samples from Hauberg et al 2020 (dataset used for comparison)
   GEXPR_HAUBERG_2020 = file.path(ROOT, "inputs", "hauberg_2020_gExpr.RDS")         # Covariate-adjusted read count matrix for FANS ATAC-seq data from Hauberg et al 2020
@@ -1415,7 +1415,7 @@ library(ggrepel)
   CT_MAP_BMIND <- c(GABA = "GABA", GLU = "GLU", Olig = "OLIG", MgAs = "MGAS")
   
   ## Load per-sample Pearson correlations (FANS vs bMIND-imputed, one row per sample)
-  sampleCorr <- read.csv(BMIND_SAMPLE_LEVEL_COR, stringsAsFactors = FALSE)
+  sampleCorr <- read.csv(BMIND_DONOR_LEVEL_COR, stringsAsFactors = FALSE)
   sampleCorr$ct_pipeline <- CT_MAP_BMIND[sampleCorr$Cell_type]
   sampleCorr <- sampleCorr[!is.na(sampleCorr$ct_pipeline) & is.finite(sampleCorr$Pearson), ]
   sampleCorr$Cell_type <- factor(sampleCorr$ct_pipeline, levels = CELL_TYPES)
@@ -1452,6 +1452,35 @@ library(ggrepel)
     theme_bw(base_size = 11) + theme(legend.position = "none", axis.text = element_text(colour = "black"))
   
   mpdf("Fig_S13", outDir = file.path(ROOT, "outputs"), width = 5, height = 4); print(pSampleDist); dev.off()
+}
+
+{
+  ## Donor-level Pearson r: for each held-out donor, correlate across genes
+  ## (bMIND-imputed vs FANS-sorted, one value per donor × cell-type)
+  CT_MAP_BMIND <- c(GABA = "GABA", GLU = "GLU", Olig = "Olig", MgAs = "MgAs")
+  
+  donorCorr <- read.csv(BMIND_DONOR_LEVEL_COR, stringsAsFactors = FALSE)
+  # Expected columns: Donor_ID, Cell_type, Pearson, CV_fold
+  donorCorr$ct_pipeline <- CT_MAP_BMIND[donorCorr$Cell_type]
+  donorCorr <- donorCorr[!is.na(donorCorr$ct_pipeline) & is.finite(donorCorr$Pearson), ]
+  donorCorr$Cell_type <- factor(donorCorr$ct_pipeline, levels = c("GABA","GLU","MgAs","Olig"))
+
+  pDonorCorr <- ggplot(donorCorr, aes(x = Cell_type, y = Pearson)) +
+    geom_violin(fill = "grey85", colour = "grey40", width = 0.85,
+                linewidth = 0.3, alpha = 0.6) +
+    geom_jitter(width = 0.12, size = 1.4, alpha = 0.55, colour = "grey25") +
+    geom_boxplot(width = 0.16, outlier.shape = NA,
+                 linewidth = 0.4, alpha = 0.35) +
+    labs(x = NULL,
+         y = "Pearson correlation (r)",
+         title = "Donor-level performance of bMIND in 5-fold cross-validation") +
+    theme_bw(base_size = 12) +
+    theme(legend.position = "none",
+          axis.text = element_text(colour = "black"))
+
+  mpdf("Fig_S13_donor_level", outDir = file.path(ROOT, "outputs"), width = 6, height = 5)
+  print(pDonorCorr)
+  dev.off()
 }
 
 ####################################################################################################
